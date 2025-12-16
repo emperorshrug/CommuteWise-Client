@@ -1,0 +1,97 @@
+import { create } from "zustand";
+import type { Terminal, TransportStop, UserLocation } from "../types/types";
+
+export type MapFeature = Terminal | TransportStop;
+
+// --- EXPORTED ROUTE INPUT TYPE ---
+export interface RouteInput {
+  id: string | null;
+  name: string;
+  lat: number;
+  lng: number;
+  // FIX: Added 'route' to the possible types
+  type: "terminal" | "place" | "custom" | "user" | "route";
+  subtitle?: string; // ADDED: Optional subtitle/address for favorites
+}
+
+interface AppState {
+  userLocation: UserLocation | null;
+  setUserLocation: (loc: UserLocation) => void;
+
+  navPhase: "exploration" | "selection" | "navigation";
+  setNavPhase: (phase: "exploration" | "selection" | "navigation") => void;
+
+  selectedFeature: MapFeature | null;
+  selectFeature: (feature: MapFeature | null) => void;
+
+  isTerminalPageOpen: boolean;
+  openTerminalPage: (isOpen: boolean) => void;
+
+  isSuggestRouteModalOpen: boolean;
+  setSuggestRouteModalOpen: (isOpen: boolean) => void;
+
+  // NEW: ROUTE SEARCH STATES
+  isSearchRoutePageOpen: boolean;
+  setSearchRoutePageOpen: (isOpen: boolean) => void;
+
+  origin: RouteInput | null;
+  destination: RouteInput | null;
+  setRouteInput: (
+    field: "origin" | "destination",
+    input: RouteInput | null
+  ) => void;
+  swapRouteInputs: () => void;
+}
+
+export const useAppStore = create<AppState>((set) => ({
+  userLocation: null,
+  navPhase: "exploration",
+  selectedFeature: null,
+  isTerminalPageOpen: false,
+  isSuggestRouteModalOpen: false,
+  isSearchRoutePageOpen: false,
+
+  origin: {
+    id: "user_loc",
+    name: "Current Location",
+    lat: 0,
+    lng: 0,
+    type: "user",
+  },
+  destination: null,
+
+  setUserLocation: (loc) =>
+    set({
+      userLocation: loc,
+      origin: {
+        id: "user_loc",
+        name: "Current Location",
+        lat: loc.lat,
+        lng: loc.lng,
+        type: "user",
+      },
+    }),
+  setNavPhase: (phase) => set({ navPhase: phase }),
+
+  selectFeature: (feature) =>
+    set({
+      selectedFeature: feature,
+      navPhase: feature ? "selection" : "exploration",
+    }),
+
+  openTerminalPage: (isOpen) => set({ isTerminalPageOpen: isOpen }),
+  setSuggestRouteModalOpen: (isOpen) =>
+    set({ isSuggestRouteModalOpen: isOpen }),
+  setSearchRoutePageOpen: (isOpen) => set({ isSearchRoutePageOpen: isOpen }),
+
+  setRouteInput: (field, input) =>
+    set(() => ({
+      [field]: input,
+    })),
+
+  swapRouteInputs: () =>
+    set((state) => ({
+      origin: state.destination,
+      destination: state.origin,
+    })),
+}));
