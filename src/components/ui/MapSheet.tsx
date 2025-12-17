@@ -1,15 +1,15 @@
 // =========================================================================================
-// COMPONENT: MAP SHEET - MODERNIZED (FIXED)
+// COMPONENT: MAP SHEET - MODERNIZED (FIXED & MAP PICKER INTEGRATED)
 // UPDATES:
-// 1. ADDED BACK THE 'ACCIDENTS' CARD IN THE REPORTS LIST.
-// 2. MATCHED STYLING WITH THE NEW 'TRAFFIC', 'THEFT', AND 'CROWD' CARDS.
-// 3. KEPT ALL PREVIOUS MODERNIZATIONS (TRUNCATION, PADDING, ETC).
+// 1. Map Picker logic is now consolidated here, replacing the standard content when active.
+// 2. Implements the 'Confirm Location' UI (Request #2).
+// 3. Dragging is disabled when in map picker mode.
 // =========================================================================================
 
 import { motion, type PanInfo, useAnimation } from "framer-motion";
 import { useEffect, useCallback, useRef } from "react";
 import { useAppStore } from "../../stores/useAppStore";
-// IMPORT SHIELD ALERT FOR ACCIDENTS
+// IMPORT ICONS FOR ACCIDENTS AND MAP PICKER UI
 import {
   Bus,
   AlertTriangle,
@@ -18,6 +18,9 @@ import {
   Users,
   Wallet,
   ChevronUp,
+  MapPin, // New
+  Check, // New
+  ArrowLeft, // New
 } from "lucide-react";
 
 // --- CONFIGURATION ---
@@ -30,29 +33,48 @@ type SnapPoint = "MIN" | "MAX";
 
 export default function MapSheet() {
   const controls = useAnimation();
-  const navPhase = useAppStore((state) => state.navPhase);
+  const {
+    navPhase,
+    isMapPickerActive,
+    mapPickerPinLocation,
+    mapPickerTargetField,
+    setSearchRoutePageOpen,
+    setMapPickerPinLocation,
+    setMapPickerActive,
+    setRouteInput,
+    savedRouteForm,
+    resetRouteInputs,
+  } = useAppStore();
   const heightState = useRef<SnapPoint>("MIN");
 
   const snapTo = useCallback(
     async (target: SnapPoint) => {
-      heightState.current = target;
-      const topValue = `${(1 - SHEET_HEIGHTS[target]) * 100}%`;
+      // Sheet is always minimized in map picker mode.
+      const snapTarget = isMapPickerActive ? "MIN" : target;
+      heightState.current = snapTarget;
+      const topValue = `${(1 - SHEET_HEIGHTS[snapTarget]) * 100}%`;
 
       await controls.start({
         top: topValue,
         transition: { type: "spring", damping: 25, stiffness: 150 },
       });
     },
-    [controls]
+    [controls, isMapPickerActive]
   );
 
   useEffect(() => {
-    if (navPhase === "exploration") {
+    // Force MIN snap in map picker mode, otherwise use navPhase logic
+    if (isMapPickerActive) {
+      snapTo("MIN");
+    } else if (navPhase === "exploration") {
       snapTo("MIN");
     }
-  }, [navPhase, snapTo]);
+  }, [navPhase, snapTo, isMapPickerActive]);
 
   const handleDragEnd = (_: unknown, info: PanInfo) => {
+    // Disable drag if map picker is active
+    if (isMapPickerActive) return;
+
     const dragDistance = info.offset.y;
     const velocity = info.velocity.y;
     const current = heightState.current;
@@ -62,6 +84,121 @@ export default function MapSheet() {
     else snapTo(current);
   };
 
+  // --- MAP PICKER ACTIONS (Moved from MainLayout.tsx) ---
+  const handleConfirm = () => {
+    // 1. Deactivate map picker mode, but KEEP mapPickerPinLocation
+    setMapPickerActive(false, null);
+    // 2. Set SearchRoutePage to false temporarily to trigger reverse geocode and re-open
+    setSearchRoutePageOpen(false);
+  };
+
+  const handleGoBack = () => {
+    // 1. Restore previous form state
+    if (savedRouteForm) {
+      setRouteInput("origin", savedRouteForm.origin);
+      setRouteInput("destination", savedRouteForm.destination);
+    } else {
+      resetRouteInputs();
+    }
+
+    // 2. Clear map picker states
+    setMapPickerPinLocation(null);
+    setMapPickerActive(false, null);
+
+    // 3. Return to the SearchRoutePage
+    setSearchRoutePageOpen(true);
+  };
+  // --- END MAP PICKER ACTIONS ---
+
+  // --- RENDER MAP PICKER UI (Request #2) ---
+  if (isMapPickerActive) {
+    const lat = mapPickerPinLocation?.lat.toFixed(6) || "N/A";
+    const lng = mapPickerPinLocation?.lng.toFixed(6) || "N/A";
+
+    return (
+      <motion.div
+        // We keep the drag properties but disable their effect in handleDragEnd
+        drag="y"
+        dragConstraints={{ top: 0, bottom: 0 }}
+        dragElastic={0.05}
+        onDragEnd={handleDragEnd}
+        animate={controls}
+        initial={{ top: "85%" }}
+        className="
+          absolute left-0 right-0 bottom-0
+          bg-white rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.15)]
+          z-40 overflow-hidden flex flex-col
+          pointer-events-auto
+        "
+        style={{ height: "100vh" }}
+      >
+        {/* DRAG HANDLE INDICATOR (Cursor is default, drag is disabled) */}
+        <div className="w-full flex flex-col items-center pt-3 pb-1 cursor-default">
+          <div className="w-14 h-1.5 bg-slate-200 rounded-full mb-1"></div>
+          <ChevronUp size={14} className="text-slate-300 opacity-50" />
+        </div>
+
+        {/* CONTENT AREA: Map Picker Confirmation */}
+        <div className="flex-1 overflow-y-auto px-6 pb-24 scroll-smooth">
+          {/* HEADER: Confirm Location */}
+          <div className="mb-8 mt-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-extrabold text-slate-900 leading-tight truncate">
+                Confirm Location
+              </h2>
+              <span
+                className={`text-xs font-bold uppercase px-3 py-1 rounded-full ${
+                  mapPickerTargetField === "origin"
+                    ? "bg-blue-100 text-blue-500"
+                    : "bg-red-100 text-red-500"
+                }`}
+              >
+                {mapPickerTargetField}
+              </span>
+            </div>
+
+            {/* Location Display */}
+            <div className="flex items-center gap-2 mt-2">
+              <MapPin size={14} className="text-slate-400" />
+              <span className="text-slate-500 text-xs font-semibold truncate">
+                Pin at: {lat}, {lng}
+              </span>
+            </div>
+
+            {/* Confirmation Buttons (Request #2) */}
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={handleGoBack}
+                className="flex-1 py-3.5 flex items-center justify-center gap-2 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+              >
+                <ArrowLeft size={20} /> Go Back
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={!mapPickerPinLocation}
+                className={`flex-1 py-3.5 flex items-center justify-center gap-2 font-bold rounded-xl shadow-lg transition-colors ${
+                  mapPickerPinLocation
+                    ? "bg-brand-primary text-white shadow-brand-primary/30 hover:bg-brand-primary/90"
+                    : "bg-slate-300 text-slate-500 shadow-none cursor-not-allowed"
+                }`}
+              >
+                <Check size={20} /> Confirm
+              </button>
+            </div>
+          </div>
+
+          {/* MAXIMIZED CONTENT AREA (Empty filler to force scroll) */}
+          <div className="space-y-8">
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider text-center pt-10">
+              Drag map to select location
+            </h3>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // --- EXISTING EXPLORATION VIEW ---
   return (
     <motion.div
       drag="y"
@@ -100,10 +237,10 @@ export default function MapSheet() {
           </div>
         </div>
 
-          {/* ROUTE SELECTION IS HANDLED BY RouteSelectionModal IN MainLayout */}
-          {/* REMOVED DUPLICATE ROUTE SELECTION UI FROM MAP SHEET */}
+        {/* ROUTE SELECTION IS HANDLED BY RouteSelectionModal IN MainLayout */}
+        {/* REMOVED DUPLICATE ROUTE SELECTION UI FROM MAP SHEET */}
 
-          {/* --- MAXIMIZED CONTENT --- */}
+        {/* --- MAXIMIZED CONTENT --- */}
         <div className="space-y-8">
           {/* SECTION 1: INVENTORY CARDS */}
           <div className="grid grid-cols-2 gap-4">

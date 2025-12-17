@@ -1,15 +1,13 @@
 // =========================================================================================
-// MAP CANVAS - REVERTED & CLEANED
+// MAP CANVAS - REVERTED & CLEANED (WITH MAP PICKER)
 // STATUS: STABLE PRODUCTION VERSION
-// 1. REMOVED ROUTELAYER IMPORT/USAGE.
-// 2. KEPT STRICT GESTURE SETTINGS TO MINIMIZE ZOOM BUGS.
-// 3. INCLUDES TERMINAL DETAILS OVERLAY.
+// UPDATES: Added Map Picker UI (Centered Pin, Tip Box) and Map Move handler.
 // =========================================================================================
 
 import { useState, useRef, useEffect } from "react";
 import Map, { type MapRef, type ViewStateChangeEvent } from "react-map-gl";
 import type { ViewState } from "react-map-gl";
-import { Crosshair } from "lucide-react";
+import { Crosshair, MapPin, Move } from "lucide-react"; // Added MapPin and Move for picker UI
 import "mapbox-gl/dist/mapbox-gl.css";
 
 // COMPONENTS
@@ -39,6 +37,7 @@ export default function MapCanvas() {
   const navPhase = useAppStore((state) => state.navPhase);
   const activeNavigation = useAppStore((state) => state.activeNavigation);
   const selectFeature = useAppStore((state) => state.selectFeature);
+  const isMapPickerActive = useAppStore((state) => state.isMapPickerActive); // New state
   const mapRef = useRef<MapRef>(null);
 
   useGeolocation();
@@ -87,6 +86,20 @@ export default function MapCanvas() {
     }
   };
 
+  // NEW: Handle map move for both standard view and map picker mode
+  const handleMapMove = (evt: ViewStateChangeEvent) => {
+    setViewState(evt.viewState);
+
+    // If Map Picker is active, update the pin location based on the map center
+    if (isMapPickerActive && mapRef.current) {
+      const center = mapRef.current.getCenter();
+      useAppStore.getState().setMapPickerPinLocation({
+        lat: center.lat,
+        lng: center.lng,
+      });
+    }
+  };
+
   if (!mapToken)
     return <div className="p-10 text-red-500">Error: Map Token Missing</div>;
 
@@ -97,8 +110,13 @@ export default function MapCanvas() {
       <Map
         ref={mapRef}
         {...viewState}
-        onMove={(evt: ViewStateChangeEvent) => setViewState(evt.viewState)}
-        onClick={() => selectFeature(null)}
+        onMove={handleMapMove} // Use consolidated move handler
+        onClick={() => {
+          // Disable click feature selection when Map Picker is active
+          if (!isMapPickerActive) {
+            selectFeature(null);
+          }
+        }}
         // PERFORMANCE & GESTURE SETTINGS
         reuseMaps={true}
         preserveDrawingBuffer={true}
@@ -121,6 +139,32 @@ export default function MapCanvas() {
         <UserMarker />
         <RouteLayer />
 
+        {/* --- NEW: MAP PICKER UI (Requests #3 & #4) --- */}
+        {isMapPickerActive && (
+          <>
+            {/* 1. Center Pin (Request #4) */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full z-50 pointer-events-none">
+              <MapPin
+                size={48}
+                className="text-red-600 drop-shadow-lg"
+                fill="white"
+                strokeWidth={1.5}
+              />
+            </div>
+
+            {/* 2. Shield Tip Box (Request #3) */}
+            <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+              <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-lg ring-4 ring-white/30">
+                <Move size={20} className="text-slate-500" />
+                <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">
+                  Drag map to select location
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+        {/* --- END MAP PICKER UI --- */}
+
         {/* RECENTER BUTTON (ABOVE SHEET) */}
         <div className="absolute bottom-52 right-4 flex flex-col gap-2 z-20">
           <button
@@ -128,8 +172,10 @@ export default function MapCanvas() {
               e.stopPropagation();
               handleRecenter();
             }}
+            // Hide Recenter button when Map Picker is active
             className={`
               p-3 rounded-full shadow-lg transition-all
+              ${isMapPickerActive ? "hidden" : ""}
               ${
                 userLocation
                   ? "bg-white text-blue-600 hover:bg-blue-50"
