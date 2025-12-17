@@ -29,7 +29,7 @@ import {
 const SHEET_HEIGHTS = {
   MIN: 0.22,
   MAX: 0.98,
-  MAP_PICKER: 0.6, // Higher height for map picker to show buttons
+  MAP_PICKER: 0.3, // Higher height for map picker to show buttons
 };
 
 type SnapPoint = "MIN" | "MAX" | "MAP_PICKER";
