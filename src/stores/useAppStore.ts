@@ -60,6 +60,12 @@ interface AppState {
   isMapPickerActive: boolean;
   mapPickerPinLocation: { lat: number; lng: number } | null;
   mapPickerTargetField: "origin" | "destination" | null;
+  // Current visible map center (for area lookups)
+  mapCenter: { lat: number; lng: number } | null;
+  setMapCenter: (c: { lat: number; lng: number } | null) => void;
+  // Flag to indicate the map has moved and data needs refreshing
+  mapNeedsRefresh: boolean;
+  setMapNeedsRefresh: (needs: boolean) => void;
   // Stores origin/destination before going to map, to restore on "Go Back"
   savedRouteForm: {
     origin: RouteInput | null;
@@ -68,7 +74,7 @@ interface AppState {
 
   setMapPickerActive: (
     isActive: boolean,
-    targetField: "origin" | "destination" | null
+    targetField?: "origin" | "destination" | null
   ) => void;
   setMapPickerPinLocation: (loc: { lat: number; lng: number } | null) => void;
   saveRouteForm: (
@@ -128,11 +134,20 @@ export const useAppStore = create<AppState>((set) => ({
 
   // NEW MAP PICKER ACTIONS
   setMapPickerActive: (isActive, targetField) =>
-    set({
+    set((state) => ({
       isMapPickerActive: isActive,
-      mapPickerTargetField: isActive ? targetField : null,
-    }),
+      mapPickerTargetField: isActive
+        ? targetField ?? state.mapPickerTargetField
+        : targetField === undefined
+        ? state.mapPickerTargetField
+        : targetField,
+    })),
   setMapPickerPinLocation: (loc) => set({ mapPickerPinLocation: loc }),
+  // Map center and refresh controls
+  mapCenter: null,
+  setMapCenter: (c) => set({ mapCenter: c }),
+  mapNeedsRefresh: false,
+  setMapNeedsRefresh: (needs) => set({ mapNeedsRefresh: needs }),
   saveRouteForm: (origin, destination) =>
     set({ savedRouteForm: { origin, destination } }),
 

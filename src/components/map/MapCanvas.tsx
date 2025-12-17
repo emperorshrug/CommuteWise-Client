@@ -39,6 +39,7 @@ export default function MapCanvas() {
   const selectFeature = useAppStore((state) => state.selectFeature);
   const isMapPickerActive = useAppStore((state) => state.isMapPickerActive); // New state
   const mapRef = useRef<MapRef>(null);
+  const lastCenterRef = useRef<{ lat: number; lng: number } | null>(null);
 
   useGeolocation();
 
@@ -90,13 +91,31 @@ export default function MapCanvas() {
   const handleMapMove = (evt: ViewStateChangeEvent) => {
     setViewState(evt.viewState);
 
+    if (!mapRef.current) return;
+
+    const center = mapRef.current.getCenter();
+
+    // Update global map center (used by MapSheet for area lookups)
+    useAppStore.getState().setMapCenter({ lat: center.lat, lng: center.lng });
+
     // If Map Picker is active, update the pin location based on the map center
-    if (isMapPickerActive && mapRef.current) {
-      const center = mapRef.current.getCenter();
+    if (isMapPickerActive) {
       useAppStore.getState().setMapPickerPinLocation({
         lat: center.lat,
         lng: center.lng,
       });
+    } else {
+      // When not in picker mode, detect significant movement to show refresh
+      const last = lastCenterRef.current;
+      const threshold = 0.0015; // ~150m threshold roughly
+      if (
+        !last ||
+        Math.abs(last.lat - center.lat) > threshold ||
+        Math.abs(last.lng - center.lng) > threshold
+      ) {
+        useAppStore.getState().setMapNeedsRefresh(true);
+        lastCenterRef.current = { lat: center.lat, lng: center.lng };
+      }
     }
   };
 

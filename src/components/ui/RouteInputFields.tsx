@@ -78,6 +78,7 @@ const RouteInputField = ({
                 `}
         placeholder={placeholder}
         value={inputValue}
+        data-field={field}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => onFocus(field)}
         onBlur={onBlur}

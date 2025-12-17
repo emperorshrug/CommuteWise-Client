@@ -34,9 +34,14 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const LOCATIONIQ_TOKEN = import.meta.env.VITE_LOCATIONIQ_TOKEN;
 
 // CONSTANTS
+// Debounce delay for search input
+// (Also used for API guardrail timing)
 const DEBOUNCE_DELAY_MS = 4000; // 4 SECONDS DEBOUNCE AS PER REQUIREMENTS
 const MIN_CHARS_FOR_SEARCH = 3;
 
+// TYPE DEFINITIONS
+// SearchResult already defined in mockSearch.ts
+// ROUTE INPUT TYPE DEFINED IN useAppStore.ts
 // Minimal interface for Mapbox Feature used in mapping (Replaces 'any' type in fetchGeocodingSuggestions)
 interface MapboxFeature {
   id: string;
@@ -51,6 +56,9 @@ interface MapboxFeature {
 }
 
 // --- PRODUCTION API HELPER: MAPBOX FORWARD GEOCODING ---
+// FETCH SUGGESTIONS FROM MAPBOX GEOCODING API
+// RETURNS ARRAY OF SearchResult
+// USING VITE_MAPBOX_TOKEN FROM ENV VARIABLES
 const fetchGeocodingSuggestions = async (
   query: string
 ): Promise<SearchResult[]> => {
@@ -383,6 +391,17 @@ export default function SearchRoutePage() {
 
   // Input Handlers
   const handleInputChange = (text: string) => {
+    // If the user clears the input, remove the stored RouteInput so it doesn't
+    // reappear when the field regains focus.
+    if (text.trim() === "") {
+      setRouteInput(currentField, null);
+      // also clear any running guard timer
+      if (apiGuardTimerRef.current) {
+        window.clearInterval(apiGuardTimerRef.current);
+        apiGuardTimerRef.current = null;
+      }
+    }
+
     setCurrentQuery(text);
   };
 
@@ -402,10 +421,14 @@ export default function SearchRoutePage() {
       setCurrentQuery("");
     }
 
-    // Reset suggestions/guardrails immediately on focus
+    // Reset suggestions/guardrails immediately on focus and cancel any debounce
     setLiveSuggestions([]);
     setApiGuardText(null);
     setIsLoadingSuggestions(false);
+    if (apiGuardTimerRef.current) {
+      window.clearInterval(apiGuardTimerRef.current);
+      apiGuardTimerRef.current = null;
+    }
   };
 
   const handleInputBlur = () => {
@@ -488,11 +511,30 @@ export default function SearchRoutePage() {
 
       // Clear the pin location now that we have the data, preventing re-triggering this effect
       setMapPickerPinLocation(null);
+      // Clear the target field after processing
+      setMapPickerActive(false, null);
 
       reverseGeocode(lat, lng)
         .then((result) => {
           if (result) {
             setRouteInput(targetField, result);
+            // Populate the visible query and focus the target field so the value
+            // appears immediately and is editable by the user.
+            setCurrentQuery(result.name || "");
+            setCurrentField(targetField);
+            // Ensure the input DOM actually receives focus so the new text is visible
+            // and editable immediately (autoFocus can be unreliable across remounts).
+            setTimeout(() => {
+              const el = document.querySelector(
+                `input[data-field="${targetField}"]`
+              ) as HTMLInputElement | null;
+              if (el) {
+                el.focus();
+                // place caret at the end (not highlighted)
+                const len = el.value.length;
+                el.setSelectionRange(len, len);
+              }
+            }, 50);
           } else {
             // Use a generic placeholder if API fails
             setRouteInput(targetField, {
@@ -520,6 +562,7 @@ export default function SearchRoutePage() {
     isReversingGeocode,
     setRouteInput,
     setMapPickerPinLocation,
+    setMapPickerActive,
     setSearchRoutePageOpen,
     setIsReversingGeocode,
   ]);

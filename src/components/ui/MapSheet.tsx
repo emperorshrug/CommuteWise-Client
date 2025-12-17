@@ -9,7 +9,7 @@
 // =========================================================================================
 
 import { motion, type PanInfo, useAnimation } from "framer-motion";
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { useAppStore } from "../../stores/useAppStore";
 // IMPORT ICONS FOR ACCIDENTS AND MAP PICKER UI
 import {
@@ -24,6 +24,8 @@ import {
   Check, // New
   ArrowLeft, // New
 } from "lucide-react";
+import { RefreshCw, Loader2 } from "lucide-react";
+import { supabase } from "../../lib/supabase";
 
 // --- CONFIGURATION ---
 const SHEET_HEIGHTS = {
@@ -45,6 +47,9 @@ export default function MapSheet() {
     setMapPickerPinLocation,
     setMapPickerActive,
     setRouteInput,
+    mapCenter,
+    mapNeedsRefresh,
+    setMapNeedsRefresh,
     savedRouteForm,
     resetRouteInputs,
   } = useAppStore();
@@ -91,12 +96,163 @@ export default function MapSheet() {
 
   // --- MAP PICKER ACTIONS (Updated) ---
   const handleConfirm = () => {
-    // 1. Deactivate map picker mode, but KEEP mapPickerPinLocation (triggers geocoding in SearchRoutePage)
-    setMapPickerActive(false, null);
-    // 2. Return to the SearchRoutePage to run the reverse geocoding API request on mount/state change
-    // The SearchRoutePage.tsx useEffect will see: !isMapPickerActive, mapPickerPinLocation (with coords)
-    // and execute the reverse geocode, then update the target field.
+    // Re-set the pin location object (new reference) to ensure listeners detect the change
+    if (mapPickerPinLocation) {
+      setMapPickerPinLocation({
+        lat: mapPickerPinLocation.lat,
+        lng: mapPickerPinLocation.lng,
+      });
+    }
+
+    // 1. Deactivate map picker mode, but KEEP mapPickerTargetField (listeners will read it)
+    setMapPickerActive(false);
+
+    // 2. Return to the SearchRoutePage to run the reverse geocoding API request
     setSearchRoutePageOpen(true);
+  };
+
+  // --- BARANGAY / AREA INFO (MINIMIZED SHEET) ---
+  const LOCATIONIQ_TOKEN = import.meta.env.VITE_LOCATIONIQ_TOKEN;
+  const [areaInfo, setAreaInfo] = useState<{ brgy?: string; city?: string; region?: string } | null>(null);
+  const [isAreaLoading, setIsAreaLoading] = useState(false);
+  const [isRefreshDebouncing, setIsRefreshDebouncing] = useState(false);
+  const [lastAreaUpdated, setLastAreaUpdated] = useState<number | null>(null);
+  const [terminals, setTerminals] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const fetchedInitiallyRef = useRef(false);
+  const cacheRef = useRef<Map<string, { brgy?: string; city?: string; region?: string; ts: number }>>(new Map());
+  const cooldownRef = useRef<number | null>(null);
+
+  const fetchBarangayInfo = async (lat?: number, lng?: number, force = false) => {
+    if (!LOCATIONIQ_TOKEN) return null;
+    const center = lat !== undefined && lng !== undefined ? { lat, lng } : mapCenter;
+    if (!center) return null;
+
+    setIsAreaLoading(true);
+    try {
+      // Simple cache key by rounded coords to reduce repeat API calls
+      const key = `${center.lat.toFixed(4)},${center.lng.toFixed(4)}`;
+      if (!force && cacheRef.current.has(key)) {
+        const cached = cacheRef.current.get(key)!;
+        setAreaInfo({ brgy: cached.brgy, city: cached.city, region: cached.region });
+        setLastAreaUpdated(cached.ts);
+        setMapNeedsRefresh(false);
+        return { brgy: cached.brgy, city: cached.city, region: cached.region };
+      }
+      const url = `https://us1.locationiq.com/v1/reverse?key=${LOCATIONIQ_TOKEN}&lat=${center.lat}&lon=${center.lng}&format=json`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const brgy = data.address.suburb || data.address.neighbourhood || data.address.village || data.address.hamlet || data.address.ward || data.address.locality;
+      const city = data.address.city || data.address.county || data.address.town || data.address.state_district;
+      const region = data.address.state;
+      const info = { brgy, city, region };
+      setAreaInfo(info);
+      const now = Date.now();
+      setLastAreaUpdated(now);
+      // cache result
+      const key = `${center.lat.toFixed(4)},${center.lng.toFixed(4)}`;
+      cacheRef.current.set(key, { brgy, city, region, ts: now });
+      // After fetching area info, clear the refresh flag
+      setMapNeedsRefresh(false);
+      return info;
+    } catch (error) {
+      console.error("Barangay lookup failed:", error);
+      return null;
+    } finally {
+      setIsAreaLoading(false);
+    }
+  };
+
+  // Initial fetch once when component mounts and we have a map center
+  useEffect(() => {
+    if (fetchedInitiallyRef.current) return;
+    if (mapCenter) {
+      fetchedInitiallyRef.current = true;
+      fetchBarangayInfo(mapCenter.lat, mapCenter.lng);
+    }
+  }, [mapCenter]);
+
+  // Show refresh button when mapNeedsRefresh is true; clicking triggers fetch with 2s debounce
+  const handleRefresh = async () => {
+    if (!mapCenter) return;
+    // start debounce/loading visual
+    setIsRefreshDebouncing(true);
+    setTimeout(async () => {
+      try {
+        await fetchBarangayInfo(mapCenter.lat, mapCenter.lng, true);
+      } finally {
+        setIsRefreshDebouncing(false);
+      }
+    }, 2000);
+  };
+
+  // When maximized, fetch related terminals/reports using barangay or bbox
+  const fetchLocalDetails = async () => {
+    if (!areaInfo) return;
+    try {
+      // Terminals: try to match by address containing barangay name
+      const brgy = areaInfo.brgy;
+      if (brgy) {
+        const { data: tdata, error: terr } = await supabase
+          .from("terminals")
+          .select("*")
+          .ilike("address", `%${brgy}%`)
+          .limit(20);
+        if (terr) {
+          console.warn("Terminal lookup error:", terr);
+          setTerminals([]);
+        } else {
+          setTerminals(tdata || []);
+        }
+      }
+
+      // Reports: query within small bbox around center
+      if (mapCenter) {
+        const delta = 0.02; // ~2km box
+        const { data: rdata, error: rerr } = await supabase
+          .from("reports")
+          .select("*")
+          .gte("lat", mapCenter.lat - delta)
+          .lte("lat", mapCenter.lat + delta)
+          .gte("lng", mapCenter.lng - delta)
+          .lte("lng", mapCenter.lng + delta);
+        if (rerr) {
+          console.warn("Reports lookup error:", rerr);
+          setReports([]);
+        } else {
+          setReports(rdata || []);
+        }
+      }
+    } catch (error) {
+      console.error("Local details fetch error:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (navPhase === "selection" && areaInfo) {
+      fetchLocalDetails();
+    }
+  }, [navPhase, areaInfo, mapCenter]);
+
+  // Helpers
+  const formatTimeAgo = (ts: number | null) => {
+    if (!ts) return "Updated unknown";
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Updated just now";
+    if (mins < 60) return `Updated ${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `Updated ${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `Updated ${days}d ago`;
+  };
+
+  const computeCrowdDensity = () => {
+    // Simple heuristic: reports nearby indicate activity
+    const r = reports.length;
+    if (r > 10) return { label: "High", badge: "text-red-600", status: "Congested" };
+    if (r > 2) return { label: "Medium", badge: "text-amber-600", status: "Busy" };
+    return { label: "Low", badge: "text-green-600", status: "Smooth" };
   };
 
   const handleGoBack = () => {
@@ -232,16 +388,37 @@ export default function MapSheet() {
       {/* CONTENT AREA */}
       <div className="flex-1 overflow-y-auto px-6 pb-24 scroll-smooth">
         {/* --- HEADER (MINIMIZED VIEW) --- */}
-        <div className="mb-8 mt-1">
-          <h2 className="text-2xl font-extrabold text-slate-900 leading-tight truncate pr-4">
-            Brgy. Tandang Sora
-          </h2>
+        <div className="mb-8 mt-1 flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <h2 className="text-2xl font-extrabold text-slate-900 leading-tight truncate pr-4">
+              {areaInfo?.brgy ? `Brgy. ${areaInfo.brgy}` : "Brgy. Unknown"}
+            </h2>
 
-          <div className="flex items-center gap-2 mt-2">
-            <MapIcon size={14} className="text-slate-400" />
-            <span className="text-slate-500 text-xs font-semibold truncate">
-              Quezon City, Metro Manila
-            </span>
+            <div className="flex items-center gap-2 mt-2">
+              <MapIcon size={14} className="text-slate-400" />
+              <span className="text-slate-500 text-xs font-semibold truncate">
+                {areaInfo?.city ? `${areaInfo.city}, ${areaInfo?.region ?? ""}` : "Location Unknown"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {mapNeedsRefresh && (
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshDebouncing || isAreaLoading}
+                className="p-2 rounded-full bg-white border border-slate-100 shadow-sm hover:bg-slate-50 transition-colors"
+                aria-label="Refresh area info"
+                title="Refresh area info"
+              >
+                <RefreshCw
+                  size={18}
+                  className={`text-slate-600 ${
+                    isRefreshDebouncing || isAreaLoading ? "animate-spin" : ""
+                  }`}
+                />
+              </button>
+            )}
           </div>
         </div>
 
@@ -256,15 +433,15 @@ export default function MapSheet() {
               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                 <Bus size={64} className="text-yellow-600" />
               </div>
-              <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center mb-2 shadow-sm">
-                <Bus size={20} />
-              </div>
-              <div>
-                <div className="text-3xl font-black text-slate-900">4</div>
-                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
-                  Terminals
-                </div>
-              </div>
+                  <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center mb-2 shadow-sm">
+                    <Bus size={20} />
+                  </div>
+                  <div>
+                    <div className="text-3xl font-black text-slate-900">{terminals.length}</div>
+                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                      Terminals
+                    </div>
+                  </div>
             </div>
 
             <div className="p-5 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col justify-between h-32 relative overflow-hidden group">
@@ -275,7 +452,7 @@ export default function MapSheet() {
                 <MapIcon size={20} />
               </div>
               <div>
-                <div className="text-3xl font-black text-slate-900">12</div>
+                <div className="text-3xl font-black text-slate-900">{terminals.reduce((acc, t) => acc + (t.routes?.length || 0), 0)}</div>
                 <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
                   Mapped Routes
                 </div>
@@ -290,88 +467,44 @@ export default function MapSheet() {
                 Live Reports (24h)
               </h3>
               <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
-                Updated 5m ago
+                {formatTimeAgo(lastAreaUpdated)}
               </span>
             </div>
 
             <div className="space-y-3">
-              {/* TRAFFIC ITEM */}
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center">
-                    <AlertTriangle size={20} strokeWidth={2.5} />
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-800 text-sm">
-                      Heavy Traffic
+              {reports.length === 0 ? (
+                <div className="p-4 text-center text-slate-500">No recent reports in this area.</div>
+              ) : (
+                reports.map((r: any) => (
+                  <div key={r.id} className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${r.type === 'accident' ? 'bg-red-50 text-red-600' : r.type === 'traffic' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
+                        {r.type === 'accident' ? <ShieldAlert size={18} /> : r.type === 'traffic' ? <AlertTriangle size={18} /> : <MapIcon size={18} />}
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-800 text-sm">{r.type?.toUpperCase() || 'INFO'}</div>
+                        <div className="text-xs text-slate-400 font-medium truncate">{r.description || 'No description'}</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-400 font-medium">
-                      Visayas Ave. Intersection
-                    </div>
+                    <div className="text-right text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString()}</div>
                   </div>
-                </div>
-                <span className="text-xl font-black text-slate-900">5</span>
-              </div>
+                ))
+              )}
 
-              {/* === ADDED BACK: ACCIDENTS ITEM === */}
-              {/* STYLED TO MATCH THE OTHER CARDS */}
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
-                    <ShieldAlert size={20} strokeWidth={2.5} />
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-800 text-sm">
-                      Accidents
-                    </div>
-                    <div className="text-xs text-slate-400 font-medium">
-                      Reported Incidents
-                    </div>
-                  </div>
-                </div>
-                {/* ZERO STATE (GRAY COLOR) OR RED IF > 0 */}
-                <span className="text-xl font-black text-slate-900">0</span>
-              </div>
-              {/* ================================== */}
-
-              {/* THEFT ITEM */}
-              <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-slate-800 text-white flex items-center justify-center">
-                    <Wallet size={20} strokeWidth={2.5} />
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-800 text-sm">
-                      Theft Alert
-                    </div>
-                    <div className="text-xs text-slate-400 font-medium">
-                      Near Market Area
-                    </div>
-                  </div>
-                </div>
-                <span className="text-xl font-black text-slate-900">1</span>
-              </div>
-
-              {/* CROWD DENSITY ITEM */}
+              {/* Crowd Density */}
               <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
                     <Users size={20} strokeWidth={2.5} />
                   </div>
                   <div>
-                    <div className="font-bold text-slate-800 text-sm">
-                      Crowd Density
-                    </div>
-                    <div className="text-xs text-slate-400 font-medium">
-                      Real-time App Users
-                    </div>
+                    <div className="font-bold text-slate-800 text-sm">Crowd Density</div>
+                    <div className="text-xs text-slate-400 font-medium">Real-time App Signals</div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-base font-black text-slate-900">Low</div>
-                  <div className="text-[10px] text-green-600 font-bold uppercase">
-                    Smooth
-                  </div>
+                  <div className="text-base font-black text-slate-900">{computeCrowdDensity().label}</div>
+                  <div className={`text-[10px] ${computeCrowdDensity().badge} font-bold uppercase`}>{computeCrowdDensity().status}</div>
                 </div>
               </div>
             </div>
