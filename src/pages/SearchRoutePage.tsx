@@ -10,20 +10,8 @@
 // =========================================================================================
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { ElementType } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  ArrowLeft,
-  MapPin,
-  ArrowUpDown,
-  LocateFixed,
-  Clock,
-  Home,
-  Plus,
-  Pencil,
-  Trash2,
-  Loader2,
-} from "lucide-react";
+import { ArrowLeft, MapPin, Loader2 } from "lucide-react";
 import { useAppStore } from "../stores/useAppStore";
 import type { RouteInput } from "../stores/useAppStore";
 import { useDebounce } from "../hooks/useDebounce";
@@ -35,6 +23,9 @@ import { calculateRoutes } from "../services/routingService";
 import FavoriteModal from "../components/modals/FavoriteModal";
 import DeleteConfirmationModal from "../components/modals/DeleteConfirmationModal";
 import AuthModal from "../components/auth/AuthModal";
+import RouteInputFields from "../components/ui/RouteInputFields";
+import SearchResults from "../components/ui/SearchResults";
+import FavoritesList from "../components/ui/FavoritesList";
 
 // API/DB IMPORTS
 import { supabase } from "../lib/supabase";
@@ -55,7 +46,7 @@ interface MapboxFeature {
   center: [number, number]; // [lng, lat]
   properties: {
     address?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -158,91 +149,6 @@ const reverseGeocode = async (
     console.error("Reverse Geocoding Failed:", error);
     return null;
   }
-};
-
-interface InputProps {
-  field: "origin" | "destination";
-  icon: ElementType;
-  placeholder: string;
-  value: RouteInput | null;
-  currentQuery: string;
-  onChange: (text: string) => void;
-  isFocused: boolean;
-  onFocus: (field: "origin" | "destination") => void;
-  onBlur: () => void;
-}
-
-const getTextColor = (value: RouteInput | null, isFocused: boolean) => {
-  if (isFocused) return "text-slate-900";
-  if (value) return "text-slate-900 font-bold";
-  return "text-slate-500";
-};
-
-const getBorderColor = (
-  field: "origin" | "destination",
-  isFocused: boolean
-) => {
-  if (!isFocused) return "border-slate-200 bg-white";
-
-  return field === "destination"
-    ? "border-red-500 bg-red-50/5"
-    : "border-blue-500 bg-blue-50/5";
-};
-
-const getIconColor = (field: "origin" | "destination", isFocused: boolean) => {
-  if (isFocused) {
-    return field === "destination" ? "text-red-500" : "text-blue-500";
-  }
-  return "text-slate-400";
-};
-
-const RouteInputField = ({
-  field,
-  icon: Icon,
-  placeholder,
-  value,
-  currentQuery,
-  onChange,
-  isFocused,
-  onFocus,
-  onBlur,
-}: InputProps) => {
-  // FIX: When focused, show currentQuery (what user is typing), otherwise show the selected value name
-  // This ensures that if the user clicks the field with a value, they see the value
-  const inputValue = isFocused ? currentQuery : value?.name || "";
-
-  return (
-    <div
-      className={`
-                flex items-center gap-3 p-3.5 rounded-xl border-2 transition-colors
-                ${getBorderColor(field, isFocused)}
-                ${field === "origin" ? "mb-2" : ""}
-            `}
-      onClick={() => {
-        // Prevent click if already focused and actively typing, relying on autoFocus for focus
-        if (!isFocused) {
-          onFocus(field);
-        }
-      }}
-    >
-      <Icon size={20} className={getIconColor(field, isFocused)} />
-
-      <input
-        type="text"
-        className={`
-                    flex-1 bg-transparent outline-none text-base
-                    ${getTextColor(value, isFocused)}
-                `}
-        placeholder={placeholder}
-        value={inputValue}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => onFocus(field)}
-        onBlur={onBlur}
-        readOnly={!isFocused}
-        autoFocus={isFocused}
-      />
-    </div>
-  );
 };
 
 export default function SearchRoutePage() {
@@ -575,50 +481,47 @@ export default function SearchRoutePage() {
     // Condition: Pin location is set, target field is known, and we are NOT reversing geocode.
     // This listener runs when MainLayout's MapPickerConfirmationSheet confirms the location.
     if (mapPickerPinLocation && mapPickerTargetField && !isReversingGeocode) {
-      // This relies on MainLayout's handleConfirm setting isMapPickerActive to false and then SearchRoutePageOpen to false
-      // before this effect runs.
-      if (isSearchRoutePageOpen === false) {
-        setIsReversingGeocode(true);
+      setIsReversingGeocode(true);
 
-        const { lat, lng } = mapPickerPinLocation;
-        const targetField = mapPickerTargetField;
+      const { lat, lng } = mapPickerPinLocation;
+      const targetField = mapPickerTargetField;
 
-        // Clear the pin location now that we have the data, preventing re-triggering this effect
-        setMapPickerPinLocation(null);
+      // Clear the pin location now that we have the data, preventing re-triggering this effect
+      setMapPickerPinLocation(null);
 
-        reverseGeocode(lat, lng)
-          .then((result) => {
-            if (result) {
-              setRouteInput(targetField, result);
-            } else {
-              // Use a generic placeholder if API fails
-              setRouteInput(targetField, {
-                id: `custom_fail_${lat}_${lng}`,
-                name: "Pinned Location (Address Lookup Failed)",
-                subtitle: `Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-                lat: lat,
-                lng: lng,
-                type: "custom",
-              });
-              alert(
-                "Could not determine address for the selected location. Using coordinates as name."
-              );
-            }
-          })
-          .finally(() => {
-            setIsReversingGeocode(false);
-            setSearchRoutePageOpen(true); // Re-open the SearchRoutePage with the new input
-            setCurrentField("destination"); // Focus destination field for the next step
-          });
-      }
+      reverseGeocode(lat, lng)
+        .then((result) => {
+          if (result) {
+            setRouteInput(targetField, result);
+          } else {
+            // Use a generic placeholder if API fails
+            setRouteInput(targetField, {
+              id: `custom_fail_${lat}_${lng}`,
+              name: "Pinned Location (Address Lookup Failed)",
+              subtitle: `Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+              lat: lat,
+              lng: lng,
+              type: "custom",
+            });
+            alert(
+              "Could not determine address for the selected location. Using coordinates as name."
+            );
+          }
+        })
+        .finally(() => {
+          setIsReversingGeocode(false);
+          setSearchRoutePageOpen(true); // Re-open the SearchRoutePage with the new input
+          setCurrentField("destination"); // Focus destination field for the next step
+        });
     }
-    // isSearchRoutePageOpen is crucial for detecting the state transition after MapPicker confirmation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     mapPickerPinLocation,
     mapPickerTargetField,
-    isSearchRoutePageOpen,
     isReversingGeocode,
+    setRouteInput,
+    setMapPickerPinLocation,
+    setSearchRoutePageOpen,
+    setIsReversingGeocode,
   ]);
 
   // UseEffect to restore form state if coming back from 'Go Back' on map picker
@@ -724,50 +627,20 @@ export default function SearchRoutePage() {
           </div>
 
           {/* ROUTE INPUTS & SWAP BUTTON */}
-          <div className="relative flex items-center gap-2">
-            {/* INPUT CONTAINER (REDUCED WIDTH) */}
-            <div className="flex-1 min-w-0 pr-10">
-              <RouteInputField
-                field="origin"
-                icon={LocateFixed}
-                placeholder="Current Location"
-                value={origin}
-                currentQuery={currentField === "origin" ? currentQuery : ""}
-                onChange={handleInputChange}
-                isFocused={currentField === "origin"}
-                onFocus={handleInputFocus}
-                onBlur={handleInputBlur}
-              />
-              <RouteInputField
-                field="destination"
-                icon={MapPin}
-                placeholder="Enter Destination"
-                value={destination}
-                currentQuery={
-                  currentField === "destination" ? currentQuery : ""
-                }
-                onChange={handleInputChange}
-                isFocused={currentField === "destination"}
-                onFocus={handleInputFocus}
-                onBlur={handleInputBlur}
-              />
-            </div>
-
-            {/* SWAP BUTTON (Vertical center alignment) */}
-            <button
-              onClick={() => {
-                swapRouteInputs();
-                // FIX 5: Swap the focused field (currentField)
-                setCurrentField((prev) =>
-                  prev === "origin" ? "destination" : "origin"
-                );
-              }}
-              className="p-2 text-brand-primary rounded-full hover:bg-brand-primary/10 absolute right-0 top-1/2 transform -translate-y-1/2 z-10"
-              aria-label="Swap origin and destination"
-            >
-              <ArrowUpDown size={24} />
-            </button>
-          </div>
+          <RouteInputFields
+            currentField={currentField}
+            currentQuery={currentQuery}
+            onInputChange={handleInputChange}
+            onInputFocus={handleInputFocus}
+            onInputBlur={handleInputBlur}
+            onSwapInputs={() => {
+              swapRouteInputs();
+              // FIX 5: Swap the focused field (currentField)
+              setCurrentField((prev) =>
+                prev === "origin" ? "destination" : "origin"
+              );
+            }}
+          />
 
           {/* SEARCH POSSIBLE ROUTES BUTTON (DISABLED WHEN NOT SET) */}
           <button
@@ -843,132 +716,26 @@ export default function SearchRoutePage() {
               </div>
             )}
 
-          {/* 11. FAVORITES SECTION (VISIBLE WHEN NO QUERY IS ACTIVE) */}
+          {/* FAVORITES */}
           {showFavorites && (
-            <div className="space-y-2 pt-2">
-              <div className="flex items-center justify-between ml-1 mb-2">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Favorites
-                </h2>
-                {/* ADD BUTTON - ONLY SHOW FOR AUTHENTICATED USERS */}
-                {user && (
-                  <button
-                    onClick={handleAddFavorite}
-                    className="flex items-center gap-1 text-brand-primary text-xs font-bold hover:text-brand-primary/80 transition-colors"
-                  >
-                    <Plus size={14} /> Add New
-                  </button>
-                )}
-              </div>
-
-              {/* GUEST USER MESSAGE */}
-              {!user && (
-                <div className="p-4 mb-4 rounded-xl bg-blue-50 text-blue-800 border border-blue-200">
-                  <p className="text-sm font-medium text-center">
-                    <button
-                      onClick={() => setIsAuthModalOpen(true)}
-                      className="text-brand-primary font-bold hover:underline"
-                    >
-                      Log in
-                    </button>{" "}
-                    to save your favorite places
-                  </p>
-                </div>
-              )}
-
-              {isFavoritesLoading ? (
-                <div className="p-4 text-center text-slate-500 flex justify-center items-center gap-2">
-                  <Loader2 size={16} className="animate-spin" />
-                  <span>Loading favorites from Supabase...</span>
-                </div>
-              ) : user && favorites.length > 0 ? (
-                favorites.map((fav) => (
-                  <div
-                    key={fav.id}
-                    className="w-full flex items-center justify-between gap-4 p-3 bg-white rounded-xl transition-colors border border-slate-200 shadow-sm"
-                  >
-                    <button
-                      onClick={() => handleFavoriteSelect(fav)}
-                      className="flex-1 flex items-center gap-4 text-left hover:bg-slate-100 rounded-lg p-2 -m-2"
-                    >
-                      <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                          fav.type === "place"
-                            ? "bg-red-50 text-red-500"
-                            : "bg-brand-primary/10 text-brand-primary"
-                        }`}
-                      >
-                        <Home size={20} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-bold text-slate-900 truncate">
-                          {fav.name}
-                        </div>
-                        <div className="text-xs text-slate-500 font-medium truncate">
-                          {fav.subtitle}
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* EDIT AND DELETE BUTTONS */}
-                    <div className="flex gap-2 shrink-0">
-                      <button
-                        onClick={() => handleEditFavorite(fav)}
-                        className="p-2 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-full transition-colors"
-                        aria-label={`Edit ${fav.name}`}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteFavorite(fav)}
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                        aria-label={`Delete ${fav.name}`}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : user && favorites.length === 0 ? (
-                <div className="p-4 text-center text-slate-500">
-                  <p className="text-sm">No favorites yet. Add one above!</p>
-                </div>
-              ) : null}
-            </div>
+            <FavoritesList
+              favorites={favorites}
+              isFavoritesLoading={isFavoritesLoading}
+              onFavoriteSelect={handleFavoriteSelect}
+              onAddFavorite={handleAddFavorite}
+              onEditFavorite={handleEditFavorite}
+              onDeleteFavorite={handleDeleteFavorite}
+            />
           )}
 
-          {/* 12. SEARCH RESULTS / SUGGESTIONS */}
+          {/* SEARCH RESULTS */}
           {showSuggestions && (
-            <div className="space-y-2 pt-2">
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 mb-2">
-                Suggestions
-              </h2>
-              {liveSuggestions.map((result) => (
-                <button
-                  key={result.id}
-                  onClick={() => handleResultSelect(result)}
-                  className="w-full flex items-center gap-4 p-3 bg-white hover:bg-slate-100 rounded-xl transition-colors text-left border border-slate-200 shadow-sm"
-                >
-                  <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                      result.type === "terminal"
-                        ? "bg-brand-primary/10 text-brand-primary"
-                        : "bg-red-50 text-red-500"
-                    }`}
-                  >
-                    <result.icon size={20} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-slate-900 truncate">
-                      {result.title}
-                    </div>
-                    <div className="text-xs text-slate-500 font-medium truncate">
-                      {result.subtitle}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <SearchResults
+              liveSuggestions={liveSuggestions}
+              isLoadingSuggestions={isLoadingSuggestions}
+              apiGuardText={apiGuardText}
+              onResultSelect={handleResultSelect}
+            />
           )}
         </div>
       </motion.div>

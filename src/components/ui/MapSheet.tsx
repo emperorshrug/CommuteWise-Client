@@ -29,9 +29,10 @@ import {
 const SHEET_HEIGHTS = {
   MIN: 0.22,
   MAX: 0.98,
+  MAP_PICKER: 0.6, // Higher height for map picker to show buttons
 };
 
-type SnapPoint = "MIN" | "MAX";
+type SnapPoint = "MIN" | "MAX" | "MAP_PICKER";
 
 export default function MapSheet() {
   const controls = useAnimation();
@@ -51,18 +52,10 @@ export default function MapSheet() {
 
   const snapTo = useCallback(
     async (target: SnapPoint) => {
-      // Sheet is always minimized in map picker mode.
-      const snapTarget = isMapPickerActive ? "MIN" : target;
+      // Sheet is always at map picker height in map picker mode.
+      const snapTarget = isMapPickerActive ? "MAP_PICKER" : target;
       heightState.current = snapTarget;
-      // Use 78% (MIN=0.22) for Map Picker to ensure full visibility,
-      // but keep the original logic for exploration mode if needed.
-      let height = SHEET_HEIGHTS[snapTarget];
-
-      // If Map Picker is active, we ensure a slightly higher minimum height
-      // by targeting MIN (0.22), which results in a 'top' value of (1-0.22) = 78%
-      if (isMapPickerActive) {
-        height = SHEET_HEIGHTS.MIN;
-      }
+      const height = SHEET_HEIGHTS[snapTarget];
 
       const topValue = `${(1 - height) * 100}%`;
 
@@ -75,9 +68,9 @@ export default function MapSheet() {
   );
 
   useEffect(() => {
-    // Force MIN snap in map picker mode, otherwise use navPhase logic
+    // Force MAP_PICKER snap in map picker mode, otherwise use navPhase logic
     if (isMapPickerActive) {
-      snapTo("MIN");
+      snapTo("MAP_PICKER");
     } else if (navPhase === "exploration") {
       snapTo("MIN");
     }
