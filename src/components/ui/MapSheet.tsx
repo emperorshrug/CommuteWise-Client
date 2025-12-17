@@ -2,8 +2,10 @@
 // COMPONENT: MAP SHEET - MODERNIZED (FIXED & MAP PICKER INTEGRATED)
 // UPDATES:
 // 1. Map Picker logic is now consolidated here, replacing the standard content when active.
-// 2. Implements the 'Confirm Location' UI (Request #2).
+// 2. Implements the 'Confirm Location' UI.
 // 3. Dragging is disabled when in map picker mode.
+// 4. FIX: Adjusted initial height to prevent bottom sheet content cut-off.
+// 5. UPDATED: Confim/Go Back logic for state preservation and API trigger.
 // =========================================================================================
 
 import { motion, type PanInfo, useAnimation } from "framer-motion";
@@ -52,7 +54,17 @@ export default function MapSheet() {
       // Sheet is always minimized in map picker mode.
       const snapTarget = isMapPickerActive ? "MIN" : target;
       heightState.current = snapTarget;
-      const topValue = `${(1 - SHEET_HEIGHTS[snapTarget]) * 100}%`;
+      // Use 78% (MIN=0.22) for Map Picker to ensure full visibility,
+      // but keep the original logic for exploration mode if needed.
+      let height = SHEET_HEIGHTS[snapTarget];
+
+      // If Map Picker is active, we ensure a slightly higher minimum height
+      // by targeting MIN (0.22), which results in a 'top' value of (1-0.22) = 78%
+      if (isMapPickerActive) {
+        height = SHEET_HEIGHTS.MIN;
+      }
+
+      const topValue = `${(1 - height) * 100}%`;
 
       await controls.start({
         top: topValue,
@@ -84,20 +96,23 @@ export default function MapSheet() {
     else snapTo(current);
   };
 
-  // --- MAP PICKER ACTIONS (Moved from MainLayout.tsx) ---
+  // --- MAP PICKER ACTIONS (Updated) ---
   const handleConfirm = () => {
-    // 1. Deactivate map picker mode, but KEEP mapPickerPinLocation
+    // 1. Deactivate map picker mode, but KEEP mapPickerPinLocation (triggers geocoding in SearchRoutePage)
     setMapPickerActive(false, null);
-    // 2. Set SearchRoutePage to false temporarily to trigger reverse geocode and re-open
-    setSearchRoutePageOpen(false);
+    // 2. Return to the SearchRoutePage to run the reverse geocoding API request on mount/state change
+    // The SearchRoutePage.tsx useEffect will see: !isMapPickerActive, mapPickerPinLocation (with coords)
+    // and execute the reverse geocode, then update the target field.
+    setSearchRoutePageOpen(true);
   };
 
   const handleGoBack = () => {
-    // 1. Restore previous form state
+    // 1. Restore previous form state (State Preservation)
     if (savedRouteForm) {
       setRouteInput("origin", savedRouteForm.origin);
       setRouteInput("destination", savedRouteForm.destination);
     } else {
+      // Fallback: If saved state is gone, revert to default.
       resetRouteInputs();
     }
 
@@ -105,25 +120,25 @@ export default function MapSheet() {
     setMapPickerPinLocation(null);
     setMapPickerActive(false, null);
 
-    // 3. Return to the SearchRoutePage
+    // 3. Return to the SearchRoutePage (State Preservation)
     setSearchRoutePageOpen(true);
   };
   // --- END MAP PICKER ACTIONS ---
 
-  // --- RENDER MAP PICKER UI (Request #2) ---
+  // --- RENDER MAP PICKER UI ---
   if (isMapPickerActive) {
     const lat = mapPickerPinLocation?.lat.toFixed(6) || "N/A";
     const lng = mapPickerPinLocation?.lng.toFixed(6) || "N/A";
 
     return (
       <motion.div
-        // We keep the drag properties but disable their effect in handleDragEnd
         drag="y"
         dragConstraints={{ top: 0, bottom: 0 }}
         dragElastic={0.05}
         onDragEnd={handleDragEnd}
         animate={controls}
-        initial={{ top: "85%" }}
+        // FIX: Set initial and animate top for a higher minimized state (78% of screen height)
+        initial={{ top: "78%" }}
         className="
           absolute left-0 right-0 bottom-0
           bg-white rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.15)]
@@ -165,7 +180,7 @@ export default function MapSheet() {
               </span>
             </div>
 
-            {/* Confirmation Buttons (Request #2) */}
+            {/* Confirmation Buttons */}
             <div className="flex gap-3 mt-4">
               <button
                 onClick={handleGoBack}
@@ -198,7 +213,7 @@ export default function MapSheet() {
     );
   }
 
-  // --- EXISTING EXPLORATION VIEW ---
+  // --- EXISTING EXPLORATION VIEW (Use original initial height 85% for MIN) ---
   return (
     <motion.div
       drag="y"
