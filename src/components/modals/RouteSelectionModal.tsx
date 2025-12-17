@@ -3,8 +3,15 @@
 // PURPOSE: DISPLAYS 3 ROUTE OPTIONS (FASTEST, CHEAPEST, SHORTEST) FOR USER SELECTION
 // =========================================================================================
 
-import { motion, AnimatePresence } from "framer-motion";
-import { Clock, DollarSign, Route as RouteIcon, Zap, Wallet, MapPin } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Clock,
+  DollarSign,
+  Route as RouteIcon,
+  Zap,
+  Wallet,
+  MapPin,
+} from "lucide-react";
 import { useAppStore } from "../../stores/useAppStore";
 import type { CalculatedRoute } from "../../types/route";
 
@@ -113,7 +120,6 @@ export default function RouteSelectionModal({
         <div className="space-y-4">
           {routes.map((route) => {
             const TagIcon = getTagIcon(route.tag);
-            const primaryVehicle = route.vehicleTypes[0] || "jeepney";
 
             return (
               <button
@@ -135,7 +141,9 @@ export default function RouteSelectionModal({
                     {route.vehicleTypes.map((vt) => (
                       <div
                         key={vt}
-                        className={`w-6 h-6 rounded-full ${getVehicleColor(vt)}`}
+                        className={`w-6 h-6 rounded-full ${getVehicleColor(
+                          vt
+                        )}`}
                         title={vt}
                       />
                     ))}
@@ -191,4 +199,3 @@ export default function RouteSelectionModal({
     </div>
   );
 }
-

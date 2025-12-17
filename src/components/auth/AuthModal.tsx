@@ -30,13 +30,18 @@ export default function AuthModal({
 
   // RESET FORM WHEN MODAL OPENS/CLOSES OR MODE CHANGES
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) {
+      return;
+    }
+
+    // Use a microtask to defer state updates
+    Promise.resolve().then(() => {
       setEmail("");
       setPassword("");
       setDisplayName("");
       setLocalError(null);
       clearError();
-    }
+    });
   }, [isOpen, mode, clearError]);
 
   // CLEAR ERRORS WHEN USER STARTS TYPING
@@ -122,9 +127,7 @@ export default function AuthModal({
 
   const displayError = localError || error;
   const isFormValid =
-    email.trim() &&
-    password.trim() &&
-    (mode === "login" || displayName.trim());
+    email.trim() && password.trim() && (mode === "login" || displayName.trim());
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -234,7 +237,9 @@ export default function AuthModal({
                 placeholder="••••••••"
                 className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary"
                 disabled={isLoading}
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                autoComplete={
+                  mode === "login" ? "current-password" : "new-password"
+                }
               />
             </div>
           </div>
@@ -256,8 +261,10 @@ export default function AuthModal({
                 <Loader2 size={20} className="animate-spin" />
                 {mode === "login" ? "Signing In..." : "Creating Account..."}
               </>
+            ) : mode === "login" ? (
+              "Sign In"
             ) : (
-              mode === "login" ? "Sign In" : "Create Account"
+              "Create Account"
             )}
           </button>
         </form>
@@ -265,7 +272,9 @@ export default function AuthModal({
         {/* MODE SWITCH */}
         <div className="mt-6 pt-6 border-t border-slate-200 text-center">
           <p className="text-sm text-slate-600">
-            {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+            {mode === "login"
+              ? "Don't have an account? "
+              : "Already have an account? "}
             <button
               onClick={() => {
                 setMode(mode === "login" ? "register" : "login");
@@ -283,4 +292,3 @@ export default function AuthModal({
     </div>
   );
 }
-

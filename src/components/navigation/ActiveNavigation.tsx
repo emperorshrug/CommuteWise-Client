@@ -4,13 +4,18 @@
 // FEATURES: Current Step Display, Progress Indicators, Segment Instructions
 // =========================================================================================
 
-import { Navigation, MapPin, ArrowRight, Clock, DollarSign } from "lucide-react";
+import {
+  Navigation,
+  MapPin,
+  ArrowRight,
+  Clock,
+  DollarSign,
+} from "lucide-react";
 import { useAppStore } from "../../stores/useAppStore";
 import { useRouteTracking } from "../../hooks/useRouteTracking";
 
 export default function ActiveNavigation() {
   const activeNavigation = useAppStore((state) => state.activeNavigation);
-  const setActiveNavigation = useAppStore((state) => state.setActiveNavigation);
   const setNavPhase = useAppStore((state) => state.setNavPhase);
   const resetNavigation = useAppStore((state) => state.resetNavigation);
 
@@ -107,7 +112,9 @@ export default function ActiveNavigation() {
                 </div>
                 <div className="text-sm text-slate-600 mb-2">
                   {currentSegment.type === "walk"
-                    ? `Walk ${currentSegment.distance_km.toFixed(2)} km to ${currentSegment.end.name}`
+                    ? `Walk ${currentSegment.distance_km.toFixed(2)} km to ${
+                        currentSegment.end.name
+                      }`
                     : `Take ${currentSegment.vehicleType} to ${currentSegment.end.name}`}
                 </div>
                 <div className="flex items-center gap-4 text-xs text-slate-500">
@@ -117,8 +124,7 @@ export default function ActiveNavigation() {
                   </div>
                   {currentSegment.fare && (
                     <div className="flex items-center gap-1">
-                      <DollarSign size={14} />
-                      ₱{currentSegment.fare.toFixed(2)}
+                      <DollarSign size={14} />₱{currentSegment.fare.toFixed(2)}
                     </div>
                   )}
                   <div className="flex items-center gap-1">
@@ -178,4 +184,3 @@ export default function ActiveNavigation() {
     </div>
   );
 }
-

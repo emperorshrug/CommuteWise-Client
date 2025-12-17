@@ -25,7 +25,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const navPhase = useAppStore((state) => state.navPhase);
   const calculatedRoutes = useAppStore((state) => state.calculatedRoutes);
   const setSelectedRoute = useAppStore((state) => state.setSelectedRoute);
-  const setNavPhase = useAppStore((state) => state.setNavPhase);
 
   // Determine if the Search Overlay should be visible
   const showSearchOverlay = !isTerminalPageOpen && !isSearchRoutePageOpen;

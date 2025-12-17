@@ -5,7 +5,7 @@
 // =========================================================================================
 
 import { TERMINALS_DATA, STOPS_DATA } from "./graph";
-import type { Terminal, TransportStop, VehicleType } from "../types/types";
+import type { VehicleType } from "../types/types";
 
 // GRAPH NODE: REPRESENTS A TERMINAL OR STOP IN THE TRANSPORT NETWORK
 interface GraphNode {
@@ -250,7 +250,8 @@ export function dijkstra(
     const outgoingEdges = edges.filter((e) => e.from === currentNodeId);
     outgoingEdges.forEach((edge) => {
       const currentDistance = distances.get(currentNodeId!)!;
-      const edgeWeight = optimizeFor === "fare" ? edge.fare ?? edge.weight : edge.weight;
+      const edgeWeight =
+        optimizeFor === "fare" ? edge.fare ?? edge.weight : edge.weight;
       const newDistance = currentDistance + edgeWeight;
 
       const neighborDistance = distances.get(edge.to)!;
@@ -311,4 +312,3 @@ export function getNodeById(nodeId: number): GraphNode | null {
   const { nodes } = buildGraph();
   return nodes.find((n) => n.id === nodeId) ?? null;
 }
-

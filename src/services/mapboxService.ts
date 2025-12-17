@@ -89,18 +89,6 @@ export async function calculateWalkingRoute(
 
     const route = data.routes[0];
 
-    // EXTRACT STEPS FOR INSTRUCTIONS
-    const steps = route.legs.flatMap((leg) =>
-      leg.steps.map((step) => ({
-        distance: step.distance,
-        duration: step.duration,
-        instruction: step.maneuver.instruction,
-        geometry: {
-          coordinates: step.geometry.coordinates as [number, number][],
-        },
-      }))
-    );
-
     return {
       geometry: {
         type: "LineString",
@@ -206,4 +194,3 @@ export function metersToKm(meters: number): number {
 export function secondsToMinutes(seconds: number): number {
   return Math.round(seconds / 60);
 }
-

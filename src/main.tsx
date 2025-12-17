@@ -3,14 +3,14 @@
 // PURPOSE: INITIALIZES REACT APP AND AUTHENTICATION STATE
 // =========================================================================================
 
-import { StrictMode, useEffect } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
-import { useAuthStore } from './stores/useAuthStore'
+import { StrictMode, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import App from "./App.tsx";
+import { useAuthStore } from "./stores/useAuthStore";
 
 // AUTH INITIALIZER COMPONENT
-function AuthInitializer() {
+export function AuthInitializer() {
   const initialize = useAuthStore((state) => state.initialize);
 
   useEffect(() => {
@@ -22,7 +22,7 @@ function AuthInitializer() {
 }
 
 // ROOT COMPONENT WITH AUTH INITIALIZATION
-function Root() {
+export function Root() {
   return (
     <StrictMode>
       <AuthInitializer />
@@ -31,4 +31,4 @@ function Root() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<Root />)
+createRoot(document.getElementById("root")!).render(<Root />);

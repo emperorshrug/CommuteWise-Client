@@ -4,9 +4,9 @@
 // COLORS: WALK = SKY BLUE, RIDE = VEHICLE COLOR (YELLOW/GREEN/PURPLE/BLUE)
 // =========================================================================================
 
+import type { ReactNode } from "react";
 import { Source, Layer } from "react-map-gl";
 import { useAppStore } from "../../stores/useAppStore";
-import type { CalculatedRoute } from "../../types/route";
 
 export default function RouteLayer() {
   const selectedRoute = useAppStore((state) => state.selectedRoute);
@@ -21,10 +21,11 @@ export default function RouteLayer() {
   if (!route) return null;
 
   // IN NAVIGATION MODE, SHOW TRAVELED AND REMAINING PATHS SEPARATELY
-  const isNavigationMode = navPhase === "navigation" && activeNavigation.isActive;
+  const isNavigationMode =
+    navPhase === "navigation" && activeNavigation.isActive;
 
   // BUILD GEOJSON FOR EACH SEGMENT WITH DIFFERENT COLORS
-  const segmentLayers: JSX.Element[] = [];
+  const segmentLayers: ReactNode[] = [];
 
   // RENDER TRAVELED PATH (GRAY) IF IN NAVIGATION MODE
   if (isNavigationMode && activeNavigation.traveledPath) {
@@ -68,9 +69,6 @@ export default function RouteLayer() {
         ? "#1d4ed8" // BLUE-700 (BUS)
         : "#64748b"; // SLATE-500 (DEFAULT)
 
-    // DASHED LINE FOR WALKING, SOLID FOR RIDING
-    const linePattern = segment.type === "walk" ? "dash" : "solid";
-
     const geojson = {
       type: "Feature" as const,
       geometry: segment.geometry,
@@ -103,4 +101,3 @@ export default function RouteLayer() {
 
   return <>{segmentLayers}</>;
 }
-

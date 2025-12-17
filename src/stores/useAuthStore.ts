@@ -27,7 +27,7 @@ interface AuthState {
   clearError: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   // INITIAL STATE
   user: null,
   session: null,
@@ -73,7 +73,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error) {
       console.error("[AUTH INIT ERROR]:", error);
       set({
-        error: error instanceof Error ? error.message : "Failed to initialize auth",
+        error:
+          error instanceof Error ? error.message : "Failed to initialize auth",
         isLoading: false,
       });
     }
@@ -84,7 +85,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       set({ error: null, isLoading: true });
 
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -105,16 +106,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   // SIGN UP: REGISTER NEW USER
-  signUp: async (
-    email: string,
-    password: string,
-    displayName?: string
-  ) => {
+  signUp: async (email: string, password: string, displayName?: string) => {
     try {
       set({ error: null, isLoading: true });
 
       // CREATE USER IN SUPABASE AUTH
-      const { data, error } = await supabase.auth.signUp({
+      const { data: authData, error } = await supabase.auth.signUp({
         email,
         password,
       });
@@ -125,11 +122,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       // IF USER CREATED SUCCESSFULLY, CREATE USER PROFILE
-      if (data.user && displayName) {
+      if (authData.user && displayName) {
         const { error: profileError } = await supabase
           .from("user_profiles")
           .insert({
-            id: data.user.id,
+            id: authData.user.id,
             display_name: displayName,
           });
 
@@ -179,4 +176,3 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ error: null });
   },
 }));
-

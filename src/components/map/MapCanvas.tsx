@@ -56,7 +56,7 @@ export default function MapCanvas() {
       mapRef.current
     ) {
       const now = Date.now();
-      
+
       // THROTTLE: ONLY UPDATE CAMERA IF 2 SECONDS HAVE PASSED
       if (now - lastCameraUpdateRef.current < CAMERA_UPDATE_THROTTLE_MS) {
         return;
@@ -72,13 +72,7 @@ export default function MapCanvas() {
 
       lastCameraUpdateRef.current = now;
     }
-  }, [
-    navPhase,
-    activeNavigation.isActive,
-    userLocation?.lat,
-    userLocation?.lng,
-    userLocation?.heading,
-  ]);
+  }, [navPhase, activeNavigation.isActive, userLocation]);
 
   const handleRecenter = () => {
     if (userLocation && mapRef.current) {

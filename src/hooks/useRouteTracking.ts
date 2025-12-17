@@ -20,17 +20,17 @@ const THROTTLE_MS = 3000;
  */
 export function useRouteTracking() {
   const userLocation = useAppStore((state) => state.userLocation);
-  const activeNavigation = useAppStore(
-    (state) => state.activeNavigation
-  );
-  const setActiveNavigation = useAppStore(
-    (state) => state.setActiveNavigation
-  );
+  const activeNavigation = useAppStore((state) => state.activeNavigation);
+  const setActiveNavigation = useAppStore((state) => state.setActiveNavigation);
   const lastTrackedPointRef = useRef<[number, number] | null>(null);
   const lastUpdateRef = useRef<number>(0); // TRACK LAST UPDATE TIME FOR THROTTLING
 
   useEffect(() => {
-    if (!activeNavigation.isActive || !activeNavigation.route || !userLocation) {
+    if (
+      !activeNavigation.isActive ||
+      !activeNavigation.route ||
+      !userLocation
+    ) {
       return;
     }
 
@@ -72,7 +72,9 @@ export function useRouteTracking() {
 
     allCoordinates.forEach((coord, index) => {
       const coordPoint = turf.point(coord);
-      const distance = turf.distance(userPoint, coordPoint, { units: "meters" });
+      const distance = turf.distance(userPoint, coordPoint, {
+        units: "meters",
+      });
       if (distance < minDistance) {
         minDistance = distance;
         nearestIndex = index;
@@ -80,8 +82,10 @@ export function useRouteTracking() {
     });
 
     // SPLIT ROUTE INTO TRAVELED AND REMAINING PARTS
-    const traveledCoordinates: [number, number][] = allCoordinates.slice(0, nearestIndex + 1);
-    const remainingCoordinates: [number, number][] = allCoordinates.slice(nearestIndex);
+    const traveledCoordinates: [number, number][] = allCoordinates.slice(
+      0,
+      nearestIndex + 1
+    );
 
     // ADD CURRENT USER POSITION TO TRAVELED PATH
     traveledCoordinates.push([userLocation.lng, userLocation.lat]);
@@ -97,8 +101,7 @@ export function useRouteTracking() {
     // RECALCULATE SEGMENT INDICES BASED ON PROGRESS
     const currentSegmentIndex = calculateCurrentSegmentIndex(
       route,
-      nearestIndex,
-      allCoordinates.length
+      nearestIndex
     );
 
     // UPDATE ACTIVE NAVIGATION STATE
@@ -127,7 +130,12 @@ export function useRouteTracking() {
     }
 
     lastUpdateRef.current = now; // UPDATE LAST UPDATE TIME
-  }, [userLocation, activeNavigation.isActive, activeNavigation.route, setActiveNavigation]);
+  }, [
+    userLocation,
+    activeNavigation.isActive,
+    activeNavigation.route,
+    setActiveNavigation,
+  ]);
 }
 
 /**
@@ -135,8 +143,7 @@ export function useRouteTracking() {
  */
 function calculateCurrentSegmentIndex(
   route: ActiveNavigationState["route"],
-  currentCoordinateIndex: number,
-  totalCoordinates: number
+  currentCoordinateIndex: number
 ): number {
   if (!route) return 0;
 
@@ -152,4 +159,3 @@ function calculateCurrentSegmentIndex(
 
   return route.segments.length - 1;
 }
-

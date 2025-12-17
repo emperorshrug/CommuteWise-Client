@@ -75,14 +75,13 @@ const COMMUNITY_POSTS = [
 // UPDATES: CONNECTED TO REAL AUTH STATE
 // =========================================================================================
 
-import { useState } from "react";
 import { useAuthStore } from "../stores/useAuthStore";
 import AuthModal from "../components/auth/AuthModal";
 
 export default function CommunityPage() {
   const user = useAuthStore((state) => state.user);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  
+
   // DERIVE GUEST STATE FROM AUTH
   const isGuest = !user;
 

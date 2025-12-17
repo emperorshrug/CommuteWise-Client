@@ -7,7 +7,7 @@
 // 4. SUPABASE AND MAPBOX API STRUCTURES ARE IN PLACE.
 // =========================================================================================
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { ElementType } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -37,6 +37,17 @@ import AuthModal from "../components/auth/AuthModal";
 // API/DB IMPORTS
 import { supabase } from "../lib/supabase";
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+
+// TYPES
+interface MapboxFeature {
+  id: string;
+  text: string;
+  place_name: string;
+  center: [number, number]; // [lng, lat]
+  properties: {
+    address?: string;
+  };
+}
 
 // CONSTANTS
 const DEBOUNCE_DELAY_MS = 4000; // 4 SECONDS DEBOUNCE AS PER REQUIREMENTS
@@ -79,17 +90,15 @@ const fetchGeocodingSuggestions = async (
 
     // MAPBOX RESPONSE MAPPING TO SearchResult
     const mappedResults: SearchResult[] = data.features.map(
-      (feature: unknown, index: number) => {
-        const feat = feature as any; // TEMPORARY CAST TO ACCESS PROPERTIES SAFELY
-
+      (feature: MapboxFeature, index: number) => {
         return {
-          id: feat.id || `result-${index}`,
+          id: feature.id || `result-${index}`,
           type: "place" as const, // Mapbox returns general locations
-          title: feat.text || "Untitled Location",
-          subtitle: feat.place_name || feat.properties.address || "",
+          title: feature.text || "Untitled Location",
+          subtitle: feature.place_name || feature.properties.address || "",
           icon: MapPin,
-          lat: feat.center[1], // Mapbox uses [lng, lat]
-          lng: feat.center[0],
+          lat: feature.center[1], // Mapbox uses [lng, lat]
+          lng: feature.center[0],
         };
       }
     );
@@ -231,7 +240,7 @@ export default function SearchRoutePage() {
   const debouncedQuery = useDebounce(currentQuery, DEBOUNCE_DELAY_MS);
 
   // --- SUPABASE: FETCH FAVORITES (REAL IMPLEMENTATION) ---
-  const fetchFavorites = async () => {
+  const fetchFavorites = useCallback(async () => {
     setIsFavoritesLoading(true);
 
     if (!user) {
@@ -252,21 +261,23 @@ export default function SearchRoutePage() {
         console.error("[FAVORITES FETCH ERROR]:", error);
         setFavorites([]);
       } else {
-        const mappedData: RouteInput[] = (data || []).map((item: {
-          id: string;
-          name: string;
-          address?: string;
-          lat: number;
-          lng: number;
-          type?: string;
-        }) => ({
-          id: item.id.toString(),
-          name: item.name,
-          subtitle: item.address || "",
-          lat: item.lat,
-          lng: item.lng,
-          type: (item.type as RouteInput["type"]) || "place",
-        }));
+        const mappedData: RouteInput[] = (data || []).map(
+          (item: {
+            id: string;
+            name: string;
+            address?: string;
+            lat: number;
+            lng: number;
+            type?: string;
+          }) => ({
+            id: item.id.toString(),
+            name: item.name,
+            subtitle: item.address || "",
+            lat: item.lat,
+            lng: item.lng,
+            type: (item.type as RouteInput["type"]) || "place",
+          })
+        );
         setFavorites(mappedData);
       }
     } catch (error) {
@@ -275,17 +286,12 @@ export default function SearchRoutePage() {
     } finally {
       setIsFavoritesLoading(false);
     }
-  };
+  }, [user]);
 
   // FETCH FAVORITES WHEN USER LOGS IN OR FAVORITES CHANGE
   useEffect(() => {
-    if (user) {
-      fetchFavorites();
-    } else {
-      setFavorites([]);
-      setIsFavoritesLoading(false);
-    }
-  }, [user]); // RE-FETCH WHEN USER CHANGES
+    fetchFavorites();
+  }, [fetchFavorites]); // RE-FETCH WHEN USER CHANGES
 
   // --- GEOLOCATION GUARDRAIL (ON LOAD) ---
   // FIX: Ensure origin is always set to current location if userLocation is available and origin type is "user"
@@ -294,10 +300,10 @@ export default function SearchRoutePage() {
     if (userLocation) {
       // If origin doesn't exist, or if origin exists but is user type with wrong coordinates, update it
       const hasOrigin = origin && origin.type === "user";
-      const coordsChanged = hasOrigin && (
-        Math.abs(origin.lat - userLocation.lat) > 0.0001 ||
-        Math.abs(origin.lng - userLocation.lng) > 0.0001
-      );
+      const coordsChanged =
+        hasOrigin &&
+        (Math.abs(origin.lat - userLocation.lat) > 0.0001 ||
+          Math.abs(origin.lng - userLocation.lng) > 0.0001);
 
       if (!origin || (hasOrigin && coordsChanged)) {
         setRouteInput("origin", {
@@ -511,7 +517,9 @@ export default function SearchRoutePage() {
 
     // PREVENT MULTIPLE SIMULTANEOUS CALCULATIONS
     if (isCalculatingRef.current || isCalculatingRoutes) {
-      console.warn("[ROUTE SEARCH]: Calculation already in progress, ignoring duplicate request.");
+      console.warn(
+        "[ROUTE SEARCH]: Calculation already in progress, ignoring duplicate request."
+      );
       return;
     }
 
@@ -596,7 +604,9 @@ export default function SearchRoutePage() {
                 icon={MapPin}
                 placeholder="Enter Destination"
                 value={destination}
-                currentQuery={currentField === "destination" ? currentQuery : ""}
+                currentQuery={
+                  currentField === "destination" ? currentQuery : ""
+                }
                 onChange={handleInputChange}
                 isFocused={currentField === "destination"}
                 onFocus={handleInputFocus}
