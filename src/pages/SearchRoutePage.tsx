@@ -3,8 +3,10 @@
 // FIXES:
 // 1. CLEARS 'Current Location' on origin focus.
 // 2. Implements modern GuardRail loading UI and refined 3-character logic.
-// 3. Implements logic for 'Select on Map' feature using LocationIQ.
-// 4. FIX: Corrected swap logic to prevent 'Current Location' from auto-reverting to origin if it is now in destination.
+// 3. Implements logic for 'Select on Map' feature using LocationIQ. (COMPLETED)
+// 4. Corrected swap logic to prevent 'Current Location' from auto-reverting to origin if it is now in destination.
+// 5. Automatically swaps the focused input field (currentField) on button click.
+// 6. Back button fully resets the state to default. (Feature 2)
 // =========================================================================================
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -120,7 +122,7 @@ const fetchGeocodingSuggestions = async (
   }
 };
 
-// --- LOCATIONIQ REVERSE GEOCODING SERVICE (FOR FEATURE 5) ---
+// --- LOCATIONIQ REVERSE GEOCODING SERVICE (FOR FEATURE 1) ---
 const reverseGeocode = async (
   lat: number,
   lng: number
@@ -254,13 +256,14 @@ export default function SearchRoutePage() {
     userLocation,
     setCalculatedRoutes,
     setNavPhase,
-    // New Map Picker States/Actions (Feature 5)
+    // Store/Action for Feature 2
+    resetRouteInputs,
+    // Map Picker States/Actions for Feature 1
     setMapPickerActive,
     saveRouteForm,
     mapPickerPinLocation,
     mapPickerTargetField,
-    savedRouteForm,
-    setMapPickerPinLocation, // Need this for cleanup/reset
+    setMapPickerPinLocation,
   } = useAppStore();
 
   // AUTH STATE
@@ -271,11 +274,10 @@ export default function SearchRoutePage() {
     "destination"
   );
   const [currentQuery, setCurrentQuery] = useState("");
-  // apiGuardText now used for status/countdown message only
   const [apiGuardText, setApiGuardText] = useState<string | null>(null);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [isCalculatingRoutes, setIsCalculatingRoutes] = useState(false);
-  // NEW: Loading state for reverse geocoding (Feature 5)
+  // NEW: Loading state for reverse geocoding (Feature 1 loading spinner)
   const [isReversingGeocode, setIsReversingGeocode] = useState(false);
 
   const [favorites, setFavorites] = useState<RouteInput[]>([]);
@@ -352,17 +354,14 @@ export default function SearchRoutePage() {
     }
   }, [user, fetchFavorites]);
 
-  // --- GEOLOCATION GUARDRAIL (ON LOAD) ---
-  // FIX 4: Updated logic to respect the swap action by checking if the user location is already set as the destination.
+  // --- GEOLOCATION GUARDRAIL ---
   useEffect(() => {
     if (userLocation) {
-      // CRITICAL FIX: If the destination is the 'user' location (due to a swap), DO NOT overwrite the origin.
+      // FIX 4: If user location is in destination (due to swap), do not overwrite origin.
       if (destination && destination.type === "user") {
         return;
       }
 
-      // If origin doesn't exist (e.g., initially empty OR after a swap of an empty origin),
-      // or if origin exists but is user type with wrong coordinates, update it.
       const hasOrigin = origin && origin.type === "user";
       const coordsChanged =
         hasOrigin &&
@@ -380,8 +379,6 @@ export default function SearchRoutePage() {
         });
       }
     }
-    // Added destination to dependency array to react to its change (e.g., after swap)
-    // setRouteInput is a stable setter from Zustand, but included for linter if necessary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userLocation, origin, destination]);
 
@@ -430,7 +427,7 @@ export default function SearchRoutePage() {
     };
   }, [debouncedQuery]);
 
-  // 4. API DEBOUNCER RESET & GUARD LOGIC (Runs on every keystroke/focus) - Polished for Feature 2 & 3 UI
+  // 4. API DEBOUNCER RESET & GUARD LOGIC (Runs on every keystroke/focus)
   useEffect(() => {
     // A. CLEAR ANY PREVIOUS API TIMER
     if (apiGuardTimerRef.current) {
@@ -566,56 +563,67 @@ export default function SearchRoutePage() {
     setFavoriteToDelete(fav);
   };
 
-  // Map Picker Handlers (Feature 5)
+  // Map Picker Handlers (Feature 1)
   const handleSelectOnMap = () => {
     saveRouteForm(origin, destination); // Save current form state
-    setSearchRoutePageOpen(false); // Close search page
+    setSearchRoutePageOpen(false); // Close search page (required to render the map)
     setMapPickerActive(true, currentField); // Activate map picker mode
   };
 
-  // UseEffect to process the result from Map Picker after 'Confirm'
+  // UseEffect to process the result from Map Picker after 'Confirm' (Feature 1)
   useEffect(() => {
-    if (
-      mapPickerPinLocation &&
-      mapPickerTargetField &&
-      isSearchRoutePageOpen === false
-    ) {
-      setIsReversingGeocode(true);
-      setMapPickerActive(false, null); // Deactivate map picker immediately after getting location
-      setMapPickerPinLocation(null); // Clear the pin location
+    // Condition: Pin location is set, target field is known, and we are NOT reversing geocode.
+    // This listener runs when MainLayout's MapPickerConfirmationSheet confirms the location.
+    if (mapPickerPinLocation && mapPickerTargetField && !isReversingGeocode) {
+      // This relies on MainLayout's handleConfirm setting isMapPickerActive to false and then SearchRoutePageOpen to false
+      // before this effect runs.
+      if (isSearchRoutePageOpen === false) {
+        setIsReversingGeocode(true);
 
-      const { lat, lng } = mapPickerPinLocation;
+        const { lat, lng } = mapPickerPinLocation;
+        const targetField = mapPickerTargetField;
 
-      reverseGeocode(lat, lng)
-        .then((result) => {
-          if (result) {
-            setRouteInput(mapPickerTargetField, result);
-          } else {
-            alert("Could not determine address for the selected location.");
-          }
-        })
-        .finally(() => {
-          setIsReversingGeocode(false);
-          setSearchRoutePageOpen(true); // Re-open the SearchRoutePage with the new input
-        });
+        // Clear the pin location now that we have the data, preventing re-triggering this effect
+        setMapPickerPinLocation(null);
+
+        reverseGeocode(lat, lng)
+          .then((result) => {
+            if (result) {
+              setRouteInput(targetField, result);
+            } else {
+              // Use a generic placeholder if API fails
+              setRouteInput(targetField, {
+                id: `custom_fail_${lat}_${lng}`,
+                name: "Pinned Location (Address Lookup Failed)",
+                subtitle: `Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+                lat: lat,
+                lng: lng,
+                type: "custom",
+              });
+              alert(
+                "Could not determine address for the selected location. Using coordinates as name."
+              );
+            }
+          })
+          .finally(() => {
+            setIsReversingGeocode(false);
+            setSearchRoutePageOpen(true); // Re-open the SearchRoutePage with the new input
+            setCurrentField("destination"); // Focus destination field for the next step
+          });
+      }
     }
-    // isSearchRoutePageOpen added to deps to ensure this only runs once, when the page closes/re-opens from map picker flow
+    // isSearchRoutePageOpen is crucial for detecting the state transition after MapPicker confirmation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     mapPickerPinLocation,
     mapPickerTargetField,
     isSearchRoutePageOpen,
-    setRouteInput,
+    isReversingGeocode,
   ]);
 
-  // UseEffect to restore form state if coming back from 'Go Back' on map picker (Feature 5)
+  // UseEffect to restore form state if coming back from 'Go Back' on map picker
   useEffect(() => {
-    if (isSearchRoutePageOpen && savedRouteForm) {
-      setRouteInput("origin", savedRouteForm.origin);
-      setRouteInput("destination", savedRouteForm.destination);
-      saveRouteForm(null, null); // Clear saved form
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // This effect remains empty as MainLayout handles the state restore on 'Go Back'
   }, [isSearchRoutePageOpen]);
 
   // 8. RENDER
@@ -696,7 +704,16 @@ export default function SearchRoutePage() {
           {/* ... (omitted header) */}
           <div className="flex items-center justify-between mb-4">
             <button
-              onClick={() => setSearchRoutePageOpen(false)}
+              onClick={() => {
+                // FIX 6: Reset to default state on back button click
+                setSearchRoutePageOpen(false);
+                resetRouteInputs(); // Reset global state (origin/destination to default)
+                // Reset local state for clean start
+                setCurrentField("destination");
+                setCurrentQuery("");
+                setApiGuardText(null);
+                setIsLoadingSuggestions(false);
+              }}
               className="p-2 -ml-2 text-slate-700 rounded-full hover:bg-slate-100"
               aria-label="Go back to map"
             >
@@ -738,7 +755,13 @@ export default function SearchRoutePage() {
 
             {/* SWAP BUTTON (Vertical center alignment) */}
             <button
-              onClick={swapRouteInputs}
+              onClick={() => {
+                swapRouteInputs();
+                // FIX 5: Swap the focused field (currentField)
+                setCurrentField((prev) =>
+                  prev === "origin" ? "destination" : "origin"
+                );
+              }}
               className="p-2 text-brand-primary rounded-full hover:bg-brand-primary/10 absolute right-0 top-1/2 transform -translate-y-1/2 z-10"
               aria-label="Swap origin and destination"
             >
@@ -787,7 +810,7 @@ export default function SearchRoutePage() {
             </div>
           </div>
 
-          {/* 9. API GUARD/LOADING UI (Feature 2 & 3 UI) */}
+          {/* 9. API GUARD/LOADING UI (Feature 1 loading spinner) */}
           {(isLoadingSuggestions || isReversingGeocode) && (
             <div className="p-4 mb-4 rounded-xl bg-white border border-slate-200 shadow-sm flex items-start gap-3">
               <Loader2

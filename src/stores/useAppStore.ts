@@ -42,6 +42,8 @@ interface AppState {
     input: RouteInput | null
   ) => void;
   swapRouteInputs: () => void;
+  // NEW: Action to reset inputs to initial state (Feature 2)
+  resetRouteInputs: () => void;
 
   // ROUTE CALCULATION STATES
   calculatedRoutes: CalculatedRoute[];
@@ -143,6 +145,34 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({
       origin: state.destination,
       destination: state.origin,
+    })),
+
+  // NEW: Reset route inputs (Feature 2)
+  resetRouteInputs: () =>
+    set((state) => ({
+      origin: state.userLocation
+        ? {
+            id: "user_loc",
+            name: "Current Location",
+            lat: state.userLocation.lat,
+            lng: state.userLocation.lng,
+            type: "user",
+            subtitle: "Your GPS Location (Auto-detected)",
+          }
+        : {
+            id: "user_loc",
+            name: "Current Location",
+            lat: 0,
+            lng: 0,
+            type: "user",
+            subtitle: "Your GPS Location (Auto-detected)",
+          },
+      destination: null,
+      // Also reset current map picker state for a clean slate
+      isMapPickerActive: false,
+      mapPickerPinLocation: null,
+      mapPickerTargetField: null,
+      savedRouteForm: null,
     })),
 
   // ROUTE CALCULATION STATES
