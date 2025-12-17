@@ -100,7 +100,10 @@ export default function MapSheet() {
           </div>
         </div>
 
-        {/* --- MAXIMIZED CONTENT --- */}
+          {/* ROUTE SELECTION IS HANDLED BY RouteSelectionModal IN MainLayout */}
+          {/* REMOVED DUPLICATE ROUTE SELECTION UI FROM MAP SHEET */}
+
+          {/* --- MAXIMIZED CONTENT --- */}
         <div className="space-y-8">
           {/* SECTION 1: INVENTORY CARDS */}
           <div className="grid grid-cols-2 gap-4">

@@ -5,10 +5,17 @@
 //          receiving new map coordinates, proving the state setter is functional.
 // =========================================================================================
 
+// =========================================================================================
+// MODAL: FAVORITE LOCATION BUILDER (ADD/EDIT)
+// UPDATES: CONNECTED TO SUPABASE FOR REAL DATA PERSISTENCE
+// =========================================================================================
+
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Save, Home, MapPin, Trash2 } from "lucide-react";
 import type { RouteInput } from "../../stores/useAppStore";
+import { supabase } from "../../lib/supabase";
+import { useAuthStore } from "../../stores/useAuthStore";
 import DeleteConfirmationModal from "./DeleteConfirmationModal";
 
 interface FavoriteModalProps {
@@ -21,50 +28,77 @@ export default function FavoriteModal({
   onClose,
 }: FavoriteModalProps) {
   const isEditMode = !!initialData;
+  const user = useAuthStore((state) => state.user);
 
   const [name, setName] = useState(initialData?.name || "");
   const [address, setAddress] = useState(initialData?.subtitle || "");
-
-  // FIX: Reverted state declaration to include 'setLocation'
   const [location, setLocation] = useState<[number, number]>(
     initialData ? [initialData.lat, initialData.lng] : [0, 0] // [lat, lng]
   );
-
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const title = isEditMode ? `Edit ${initialData?.name}` : "Add New Favorite";
   const actionButtonText = isEditMode ? "Update Location" : "Save Location";
   const canSave = name.length > 0 && location[0] !== 0;
 
-  const handleSubmit = () => {
-    if (!canSave) return;
+  const handleSubmit = async () => {
+    if (!canSave || !user) return;
 
-    const data: RouteInput = {
-      id: initialData?.id || Date.now().toString(),
-      name,
-      subtitle: address,
-      lat: location[0],
-      lng: location[1],
-      type: "place",
-    };
+    setIsSaving(true);
+    try {
+      const favoriteData = {
+        user_id: user.id,
+        name,
+        address,
+        lat: location[0],
+        lng: location[1],
+        type: "place" as const,
+      };
 
-    if (isEditMode) {
-      console.log(
-        `[SUPABASE MOCK] UPDATING FAVORITE: ${data.name} (ID: ${data.id})`
-      );
-    } else {
-      console.log(`[SUPABASE MOCK] CREATING NEW FAVORITE: ${data.name}`);
+      if (isEditMode && initialData?.id) {
+        // UPDATE EXISTING FAVORITE
+        const { error } = await supabase
+          .from("favorites")
+          .update(favoriteData)
+          .eq("id", initialData.id)
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+      } else {
+        // CREATE NEW FAVORITE
+        const { error } = await supabase.from("favorites").insert(favoriteData);
+
+        if (error) throw error;
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("[FAVORITE SAVE ERROR]:", error);
+      alert("Failed to save favorite. Please try again.");
+    } finally {
+      setIsSaving(false);
     }
-    onClose();
   };
 
-  // MOCK DELETE HANDLER
-  const handleDelete = () => {
+  // DELETE HANDLER (CONNECTED TO SUPABASE)
+  const handleDelete = async () => {
+    if (!user || !initialData?.id) return;
+
     setIsDeleteConfirmOpen(false);
-    console.log(
-      `[SUPABASE MOCK] DELETING FAVORITE: ${initialData?.name} (ID: ${initialData?.id})`
-    );
-    onClose();
+    try {
+      const { error } = await supabase
+        .from("favorites")
+        .delete()
+        .eq("id", initialData.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+      onClose();
+    } catch (error) {
+      console.error("[FAVORITE DELETE ERROR]:", error);
+      alert("Failed to delete favorite. Please try again.");
+    }
   };
 
   // MOCK MAP SELECTION HANDLER
@@ -180,17 +214,17 @@ export default function FavoriteModal({
 
           <button
             onClick={handleSubmit}
-            disabled={!canSave}
+            disabled={!canSave || isSaving}
             className={`flex-1 py-3.5 text-white font-bold text-base rounded-xl shadow-lg transition-colors flex items-center justify-center gap-2
                            ${
-                             canSave
+                             canSave && !isSaving
                                ? "bg-brand-primary shadow-brand-primary/30 hover:bg-brand-primary/90"
                                : "bg-slate-400 cursor-not-allowed shadow-none"
                            }
                         `}
           >
             <Save size={20} />
-            {actionButtonText}
+            {isSaving ? "Saving..." : actionButtonText}
           </button>
         </div>
       </motion.div>

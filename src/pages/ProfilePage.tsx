@@ -3,7 +3,7 @@
 // ANIMATION RESET: REMOVED ACTIVE SCALES ON BUTTONS AND CARDS.
 // =========================================================================================
 
-import { useState } from "react";
+import type { useState } from "react";
 import {
   Mail,
   Lock,
@@ -25,8 +25,22 @@ const USER_FEEDBACKS = [
   { id: 2, title: "Reported Map Issue", status: "pending", date: "5 days ago" },
 ];
 
+// =========================================================================================
+// PAGE: PROFILE PAGE
+// UPDATES: CONNECTED TO REAL AUTH STATE
+// =========================================================================================
+
+import { useState } from "react";
+import { useAuthStore } from "../stores/useAuthStore";
+import AuthModal from "../components/auth/AuthModal";
+
 export default function ProfilePage() {
-  const [isGuest, setIsGuest] = useState(true);
+  const user = useAuthStore((state) => state.user);
+  const signOut = useAuthStore((state) => state.signOut);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  // DERIVE GUEST STATE FROM AUTH
+  const isGuest = !user;
   const [expandedFeedbackId, setExpandedFeedbackId] = useState<number | null>(
     null
   );
@@ -68,7 +82,7 @@ export default function ProfilePage() {
             security.
           </p>
           <button
-            onClick={() => setIsGuest(false)}
+            onClick={() => setIsAuthModalOpen(true)}
             className="w-full py-3.5 bg-brand-primary text-white font-bold rounded-xl shadow-lg shadow-brand-primary/30 hover:bg-brand-primary/90 transition-colors"
           >
             Login / Register

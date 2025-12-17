@@ -9,6 +9,7 @@ import MapSheet from "../components/ui/MapSheet";
 import { useAppStore } from "../stores/useAppStore";
 import FloatingReportButton from "../components/ui/FloatingReportButton";
 import SuggestRouteModal from "../components/modals/SuggestRouteModal";
+import RouteSelectionModal from "../components/modals/RouteSelectionModal";
 import SearchRoutePage from "../pages/SearchRoutePage"; // NEW IMPORT
 import { AnimatePresence } from "framer-motion";
 
@@ -20,7 +21,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const isTerminalPageOpen = useAppStore((state) => state.isTerminalPageOpen);
   const isSearchRoutePageOpen = useAppStore(
     (state) => state.isSearchRoutePageOpen
-  ); // NEW STATE
+  );
+  const navPhase = useAppStore((state) => state.navPhase);
+  const calculatedRoutes = useAppStore((state) => state.calculatedRoutes);
+  const setSelectedRoute = useAppStore((state) => state.setSelectedRoute);
+  const setNavPhase = useAppStore((state) => state.setNavPhase);
 
   // Determine if the Search Overlay should be visible
   const showSearchOverlay = !isTerminalPageOpen && !isSearchRoutePageOpen;
@@ -53,6 +58,22 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
       {/* GLOBAL MODALS */}
       <SuggestRouteModal />
+
+      {/* ROUTE SELECTION MODAL */}
+      <AnimatePresence>
+        {navPhase === "selection" && calculatedRoutes.length > 0 && (
+          <RouteSelectionModal
+            routes={calculatedRoutes}
+            onSelect={(route) => {
+              setSelectedRoute(route);
+              // NAVIGATION IS STARTED BY RouteSelectionModal's handleSelectRoute
+            }}
+            onClose={() => {
+              // MODAL CLOSES AUTOMATICALLY WHEN ROUTE IS SELECTED
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* FULL-SCREEN ROUTE SEARCH PAGE (Sits above everything else) */}
       <AnimatePresence>

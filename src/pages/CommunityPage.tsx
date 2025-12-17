@@ -70,8 +70,21 @@ const COMMUNITY_POSTS = [
   },
 ];
 
+// =========================================================================================
+// PAGE: COMMUNITY PAGE
+// UPDATES: CONNECTED TO REAL AUTH STATE
+// =========================================================================================
+
+import { useState } from "react";
+import { useAuthStore } from "../stores/useAuthStore";
+import AuthModal from "../components/auth/AuthModal";
+
 export default function CommunityPage() {
-  const [isGuest, setIsGuest] = useState(true);
+  const user = useAuthStore((state) => state.user);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  
+  // DERIVE GUEST STATE FROM AUTH
+  const isGuest = !user;
 
   return (
     <div className="w-full h-full absolute inset-0 bg-slate-50 flex flex-col">
@@ -92,7 +105,7 @@ export default function CommunityPage() {
             </div>
           </div>
           <button
-            onClick={() => setIsGuest(false)}
+            onClick={() => setIsAuthModalOpen(true)}
             className="px-4 py-2 bg-white text-blue-600 text-xs font-bold rounded-lg shadow-sm hover:bg-blue-50 transition-colors"
           >
             Login
@@ -227,6 +240,12 @@ export default function CommunityPage() {
           ))}
         </div>
       </div>
+
+      {/* AUTH MODAL */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
     </div>
   );
 }

@@ -5,6 +5,11 @@
 // 2. ENSURED MAP OPTIONS ONLY SHOW ON MAP PAGE.
 // =========================================================================================
 
+// =========================================================================================
+// COMPONENT: FLOATING REPORT BUTTON (CONTEXT AWARE)
+// UPDATES: AUTHENTICATION REQUIRED FOR REPORTING ACTIONS
+// =========================================================================================
+
 import { useState, type ElementType } from "react";
 import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,6 +22,8 @@ import {
   PenSquare,
 } from "lucide-react";
 import { useAppStore } from "../../stores/useAppStore";
+import { useAuthStore } from "../../stores/useAuthStore";
+import AuthModal from "../auth/AuthModal";
 
 interface OptionButtonProps {
   icon: ElementType;
@@ -44,7 +51,9 @@ const OptionButton = ({
 
 export default function FloatingReportButton() {
   const [isOpen, setIsOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const location = useLocation();
+  const user = useAuthStore((state) => state.user);
   const setSuggestRouteModalOpen = useAppStore(
     (state) => state.setSuggestRouteModalOpen
   );
@@ -52,6 +61,16 @@ export default function FloatingReportButton() {
   // CONTEXT LOGIC
   const isMapPage = location.pathname === "/";
   const isCommunityPage = location.pathname === "/community";
+
+  // AUTH CHECK HELPER
+  const requireAuth = (callback: () => void) => {
+    if (!user) {
+      setIsAuthModalOpen(true);
+      setIsOpen(false);
+    } else {
+      callback();
+    }
+  };
 
   const toggleMenu = () => setIsOpen(!isOpen);
 
@@ -98,14 +117,14 @@ export default function FloatingReportButton() {
                   <OptionButton
                     icon={AlertTriangle}
                     label="Report Map Error"
-                    onClick={() => alert("Report Map Error Clicked")}
+                    onClick={() => requireAuth(() => alert("Report Map Error Clicked"))}
                     color="text-red-600"
                   />
                   <div className="h-px bg-slate-100 my-2"></div>
                   <OptionButton
                     icon={MapPinPlus}
                     label="Add Community Marker"
-                    onClick={() => alert("Add Marker Clicked")}
+                    onClick={() => requireAuth(() => alert("Add Marker Clicked"))}
                     color="text-brand-primary"
                   />
                   <OptionButton
@@ -138,6 +157,12 @@ export default function FloatingReportButton() {
       >
         {isOpen ? <X size={24} /> : <AlertTriangle size={24} />}
       </button>
+
+      {/* AUTH MODAL */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
     </div>
   );
 }

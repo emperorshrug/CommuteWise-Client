@@ -6,6 +6,8 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Navigation, ScrollText } from "lucide-react";
+import { useAuthStore } from "../stores/useAuthStore";
+import AuthModal from "../components/auth/AuthModal";
 
 const TRIP_HISTORY = [
   {
@@ -40,8 +42,17 @@ const TRIP_HISTORY = [
   },
 ];
 
+// =========================================================================================
+// PAGE: ACTIVITY PAGE
+// UPDATES: CONNECTED TO REAL AUTH STATE
+// =========================================================================================
+
 export default function ActivityPage() {
-  const [isGuest, setIsGuest] = useState(true);
+  const user = useAuthStore((state) => state.user);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  
+  // DERIVE GUEST STATE FROM AUTH
+  const isGuest = !user;
   const [expandedTripId, setExpandedTripId] = useState<number | null>(null);
 
   const getDotStyle = (type: string) => {
@@ -78,7 +89,7 @@ export default function ActivityPage() {
           </p>
           {/* LOGIN BUTTON (NO ANIMATION) */}
           <button
-            onClick={() => setIsGuest(false)}
+            onClick={() => setIsAuthModalOpen(true)}
             className="w-full py-3.5 bg-brand-primary text-white font-bold rounded-xl shadow-lg shadow-brand-primary/30 hover:bg-brand-primary/90 transition-colors"
           >
             Login / Register
@@ -168,6 +179,12 @@ export default function ActivityPage() {
           })}
         </div>
       )}
+
+      {/* AUTH MODAL */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
     </div>
   );
 }

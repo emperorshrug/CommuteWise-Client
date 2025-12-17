@@ -1,5 +1,9 @@
 import { create } from "zustand";
 import type { Terminal, TransportStop, UserLocation } from "../types/types";
+import type {
+  CalculatedRoute,
+  ActiveNavigationState,
+} from "../types/route";
 
 export type MapFeature = Terminal | TransportStop;
 
@@ -41,6 +45,17 @@ interface AppState {
     input: RouteInput | null
   ) => void;
   swapRouteInputs: () => void;
+
+  // ROUTE CALCULATION STATES
+  calculatedRoutes: CalculatedRoute[];
+  setCalculatedRoutes: (routes: CalculatedRoute[]) => void;
+  selectedRoute: CalculatedRoute | null;
+  setSelectedRoute: (route: CalculatedRoute | null) => void;
+
+  // ACTIVE NAVIGATION STATE
+  activeNavigation: ActiveNavigationState;
+  setActiveNavigation: (state: Partial<ActiveNavigationState>) => void;
+  resetNavigation: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -94,4 +109,35 @@ export const useAppStore = create<AppState>((set) => ({
       origin: state.destination,
       destination: state.origin,
     })),
+
+  // ROUTE CALCULATION STATES
+  calculatedRoutes: [],
+  setCalculatedRoutes: (routes) => set({ calculatedRoutes: routes }),
+  selectedRoute: null,
+  setSelectedRoute: (route) => set({ selectedRoute: route }),
+
+  // ACTIVE NAVIGATION STATE
+  activeNavigation: {
+    route: null,
+    currentSegmentIndex: 0,
+    currentStepIndex: 0,
+    traveledPath: null,
+    remainingPath: null,
+    isActive: false,
+  },
+  setActiveNavigation: (state) =>
+    set((prev) => ({
+      activeNavigation: { ...prev.activeNavigation, ...state },
+    })),
+  resetNavigation: () =>
+    set({
+      activeNavigation: {
+        route: null,
+        currentSegmentIndex: 0,
+        currentStepIndex: 0,
+        traveledPath: null,
+        remainingPath: null,
+        isActive: false,
+      },
+    }),
 }));
