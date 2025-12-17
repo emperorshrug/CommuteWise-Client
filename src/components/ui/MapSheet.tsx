@@ -18,13 +18,12 @@ import {
   ShieldAlert,
   Map as MapIcon,
   Users,
-  Wallet,
   ChevronUp,
-  MapPin, // New
-  Check, // New
-  ArrowLeft, // New
+  MapPin,
+  Check,
+  ArrowLeft,
+  RefreshCw,
 } from "lucide-react";
-import { RefreshCw, Loader2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 // --- CONFIGURATION ---
@@ -52,6 +51,8 @@ export default function MapSheet() {
     setMapNeedsRefresh,
     savedRouteForm,
     resetRouteInputs,
+    selectFeature,
+    openTerminalPage,
   } = useAppStore();
   const heightState = useRef<SnapPoint>("MIN");
 
@@ -113,19 +114,30 @@ export default function MapSheet() {
 
   // --- BARANGAY / AREA INFO (MINIMIZED SHEET) ---
   const LOCATIONIQ_TOKEN = import.meta.env.VITE_LOCATIONIQ_TOKEN;
-  const [areaInfo, setAreaInfo] = useState<{ brgy?: string; city?: string; region?: string } | null>(null);
+  const [areaInfo, setAreaInfo] = useState<{
+    brgy?: string;
+    city?: string;
+    region?: string;
+  } | null>(null);
   const [isAreaLoading, setIsAreaLoading] = useState(false);
   const [isRefreshDebouncing, setIsRefreshDebouncing] = useState(false);
   const [lastAreaUpdated, setLastAreaUpdated] = useState<number | null>(null);
   const [terminals, setTerminals] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
   const fetchedInitiallyRef = useRef(false);
-  const cacheRef = useRef<Map<string, { brgy?: string; city?: string; region?: string; ts: number }>>(new Map());
-  const cooldownRef = useRef<number | null>(null);
+  const cacheRef = useRef<
+    Map<string, { brgy?: string; city?: string; region?: string; ts: number }>
+  >(new Map());
+  // const cooldownRef = useRef<number | null>(null); // Removed unused cooldownRef
 
-  const fetchBarangayInfo = async (lat?: number, lng?: number, force = false) => {
+  const fetchBarangayInfo = async (
+    lat?: number,
+    lng?: number,
+    force = false
+  ) => {
     if (!LOCATIONIQ_TOKEN) return null;
-    const center = lat !== undefined && lng !== undefined ? { lat, lng } : mapCenter;
+    const center =
+      lat !== undefined && lng !== undefined ? { lat, lng } : mapCenter;
     if (!center) return null;
 
     setIsAreaLoading(true);
@@ -134,7 +146,11 @@ export default function MapSheet() {
       const key = `${center.lat.toFixed(4)},${center.lng.toFixed(4)}`;
       if (!force && cacheRef.current.has(key)) {
         const cached = cacheRef.current.get(key)!;
-        setAreaInfo({ brgy: cached.brgy, city: cached.city, region: cached.region });
+        setAreaInfo({
+          brgy: cached.brgy,
+          city: cached.city,
+          region: cached.region,
+        });
         setLastAreaUpdated(cached.ts);
         setMapNeedsRefresh(false);
         return { brgy: cached.brgy, city: cached.city, region: cached.region };
@@ -142,15 +158,25 @@ export default function MapSheet() {
       const url = `https://us1.locationiq.com/v1/reverse?key=${LOCATIONIQ_TOKEN}&lat=${center.lat}&lon=${center.lng}&format=json`;
       const res = await fetch(url);
       const data = await res.json();
-      const brgy = data.address.suburb || data.address.neighbourhood || data.address.village || data.address.hamlet || data.address.ward || data.address.locality;
-      const city = data.address.city || data.address.county || data.address.town || data.address.state_district;
+      const brgy =
+        data.address.suburb ||
+        data.address.neighbourhood ||
+        data.address.village ||
+        data.address.hamlet ||
+        data.address.ward ||
+        data.address.locality;
+      const city =
+        data.address.city ||
+        data.address.county ||
+        data.address.town ||
+        data.address.state_district;
       const region = data.address.state;
       const info = { brgy, city, region };
       setAreaInfo(info);
       const now = Date.now();
       setLastAreaUpdated(now);
       // cache result
-      const key = `${center.lat.toFixed(4)},${center.lng.toFixed(4)}`;
+      // cache result (reuse the key defined earlier)
       cacheRef.current.set(key, { brgy, city, region, ts: now });
       // After fetching area info, clear the refresh flag
       setMapNeedsRefresh(false);
@@ -188,7 +214,12 @@ export default function MapSheet() {
 
   // When maximized, fetch related terminals/reports using barangay or bbox
   const fetchLocalDetails = async () => {
-    if (!areaInfo) return;
+    if (!areaInfo) {
+      // clear lists when there's no area info
+      setTerminals([]);
+      setReports([]);
+      return;
+    }
     try {
       // Terminals: try to match by address containing barangay name
       const brgy = areaInfo.brgy;
@@ -204,6 +235,8 @@ export default function MapSheet() {
         } else {
           setTerminals(tdata || []);
         }
+      } else {
+        setTerminals([]);
       }
 
       // Reports: query within small bbox around center
@@ -250,8 +283,10 @@ export default function MapSheet() {
   const computeCrowdDensity = () => {
     // Simple heuristic: reports nearby indicate activity
     const r = reports.length;
-    if (r > 10) return { label: "High", badge: "text-red-600", status: "Congested" };
-    if (r > 2) return { label: "Medium", badge: "text-amber-600", status: "Busy" };
+    if (r > 10)
+      return { label: "High", badge: "text-red-600", status: "Congested" };
+    if (r > 2)
+      return { label: "Medium", badge: "text-amber-600", status: "Busy" };
     return { label: "Low", badge: "text-green-600", status: "Smooth" };
   };
 
@@ -397,7 +432,9 @@ export default function MapSheet() {
             <div className="flex items-center gap-2 mt-2">
               <MapIcon size={14} className="text-slate-400" />
               <span className="text-slate-500 text-xs font-semibold truncate">
-                {areaInfo?.city ? `${areaInfo.city}, ${areaInfo?.region ?? ""}` : "Location Unknown"}
+                {areaInfo?.city
+                  ? `${areaInfo.city}, ${areaInfo?.region ?? ""}`
+                  : "Location Unknown"}
               </span>
             </div>
           </div>
@@ -433,15 +470,17 @@ export default function MapSheet() {
               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                 <Bus size={64} className="text-yellow-600" />
               </div>
-                  <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center mb-2 shadow-sm">
-                    <Bus size={20} />
-                  </div>
-                  <div>
-                    <div className="text-3xl font-black text-slate-900">{terminals.length}</div>
-                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
-                      Terminals
-                    </div>
-                  </div>
+              <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center mb-2 shadow-sm">
+                <Bus size={20} />
+              </div>
+              <div>
+                <div className="text-3xl font-black text-slate-900">
+                  {terminals.length}
+                </div>
+                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                  Terminals
+                </div>
+              </div>
             </div>
 
             <div className="p-5 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col justify-between h-32 relative overflow-hidden group">
@@ -452,7 +491,12 @@ export default function MapSheet() {
                 <MapIcon size={20} />
               </div>
               <div>
-                <div className="text-3xl font-black text-slate-900">{terminals.reduce((acc, t) => acc + (t.routes?.length || 0), 0)}</div>
+                <div className="text-3xl font-black text-slate-900">
+                  {terminals.reduce(
+                    (acc, t) => acc + (t.routes?.length || 0),
+                    0
+                  )}
+                </div>
                 <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
                   Mapped Routes
                 </div>
@@ -461,6 +505,58 @@ export default function MapSheet() {
           </div>
 
           {/* SECTION 2: REPORTS LIST */}
+          {/* SECTION 2: TERMINALS LIST */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Nearby Terminals
+              </h3>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
+                {terminals.length} found
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {terminals.length === 0 ? (
+                <div className="p-4 text-center text-slate-500">
+                  No terminals found in this area.
+                </div>
+              ) : (
+                terminals.map((t: any) => (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      selectFeature(t);
+                      openTerminalPage(true);
+                    }}
+                    className="w-full text-left flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-slate-50 flex items-center justify-center text-slate-700">
+                        <Bus size={20} />
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-bold text-slate-900 text-sm truncate">
+                          {t.name}
+                        </div>
+                        <div className="text-xs text-slate-400 truncate">
+                          {t.address || "Address unknown"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right text-xs text-slate-500">
+                      <div>{t.vehicle_type ?? "—"}</div>
+                      <div className="text-[10px] text-slate-400">
+                        {t.routes?.length ?? 0} routes
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
           <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
@@ -473,20 +569,45 @@ export default function MapSheet() {
 
             <div className="space-y-3">
               {reports.length === 0 ? (
-                <div className="p-4 text-center text-slate-500">No recent reports in this area.</div>
+                <div className="p-4 text-center text-slate-500">
+                  No recent reports in this area.
+                </div>
               ) : (
                 reports.map((r: any) => (
-                  <div key={r.id} className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow">
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-shadow"
+                  >
                     <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${r.type === 'accident' ? 'bg-red-50 text-red-600' : r.type === 'traffic' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
-                        {r.type === 'accident' ? <ShieldAlert size={18} /> : r.type === 'traffic' ? <AlertTriangle size={18} /> : <MapIcon size={18} />}
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          r.type === "accident"
+                            ? "bg-red-50 text-red-600"
+                            : r.type === "traffic"
+                            ? "bg-orange-50 text-orange-600"
+                            : "bg-blue-50 text-blue-600"
+                        }`}
+                      >
+                        {r.type === "accident" ? (
+                          <ShieldAlert size={18} />
+                        ) : r.type === "traffic" ? (
+                          <AlertTriangle size={18} />
+                        ) : (
+                          <MapIcon size={18} />
+                        )}
                       </div>
                       <div>
-                        <div className="font-bold text-slate-800 text-sm">{r.type?.toUpperCase() || 'INFO'}</div>
-                        <div className="text-xs text-slate-400 font-medium truncate">{r.description || 'No description'}</div>
+                        <div className="font-bold text-slate-800 text-sm">
+                          {r.type?.toUpperCase() || "INFO"}
+                        </div>
+                        <div className="text-xs text-slate-400 font-medium truncate">
+                          {r.description || "No description"}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString()}</div>
+                    <div className="text-right text-xs text-slate-500">
+                      {new Date(r.created_at).toLocaleTimeString()}
+                    </div>
                   </div>
                 ))
               )}
@@ -498,13 +619,25 @@ export default function MapSheet() {
                     <Users size={20} strokeWidth={2.5} />
                   </div>
                   <div>
-                    <div className="font-bold text-slate-800 text-sm">Crowd Density</div>
-                    <div className="text-xs text-slate-400 font-medium">Real-time App Signals</div>
+                    <div className="font-bold text-slate-800 text-sm">
+                      Crowd Density
+                    </div>
+                    <div className="text-xs text-slate-400 font-medium">
+                      Real-time App Signals
+                    </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-base font-black text-slate-900">{computeCrowdDensity().label}</div>
-                  <div className={`text-[10px] ${computeCrowdDensity().badge} font-bold uppercase`}>{computeCrowdDensity().status}</div>
+                  <div className="text-base font-black text-slate-900">
+                    {computeCrowdDensity().label}
+                  </div>
+                  <div
+                    className={`text-[10px] ${
+                      computeCrowdDensity().badge
+                    } font-bold uppercase`}
+                  >
+                    {computeCrowdDensity().status}
+                  </div>
                 </div>
               </div>
             </div>
