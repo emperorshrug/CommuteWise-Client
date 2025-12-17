@@ -1,10 +1,10 @@
 // =========================================================================================
 // PAGE: SEARCH ROUTE PAGE (PRODUCTION IMPLEMENTATION - FINAL ESLINT/TS FIXES)
 // FIXES:
-// 1. RESOLVED ALL REMAINING ESLINT WARNINGS (cascading renders, unused imports).
-// 2. RESOLVED 'any' TYPE WARNING in fetchGeocodingSuggestions.
-// 3. ENSURED FAVORITES FETCHING IS SAFELY DEFERRED.
-// 4. SUPABASE AND MAPBOX API STRUCTURES ARE IN PLACE.
+// 1. CLEARS 'Current Location' on origin focus.
+// 2. Implements modern GuardRail loading UI and refined 3-character logic.
+// 3. Implements logic for 'Select on Map' feature using LocationIQ.
+// 4. FIX: Corrected swap logic to prevent 'Current Location' from auto-reverting to origin if it is now in destination.
 // =========================================================================================
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -20,8 +20,8 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Loader2, // KEPT Loader2
-} from "lucide-react"; // REMOVED Search
+  Loader2,
+} from "lucide-react";
 import { useAppStore } from "../stores/useAppStore";
 import type { RouteInput } from "../stores/useAppStore";
 import { useDebounce } from "../hooks/useDebounce";
@@ -37,27 +37,27 @@ import AuthModal from "../components/auth/AuthModal";
 // API/DB IMPORTS
 import { supabase } from "../lib/supabase";
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
-
-// TYPES
-interface MapboxFeature {
-  id: string;
-  text: string;
-  place_name: string;
-  center: [number, number]; // [lng, lat]
-  properties: {
-    address?: string;
-  };
-}
+// NOTE: LOCATIONIQ_TOKEN is assumed to be available in environment variables for Feature 5
+const LOCATIONIQ_TOKEN = import.meta.env.VITE_LOCATIONIQ_TOKEN;
 
 // CONSTANTS
 const DEBOUNCE_DELAY_MS = 4000; // 4 SECONDS DEBOUNCE AS PER REQUIREMENTS
 const MIN_CHARS_FOR_SEARCH = 3;
 
+// Minimal interface for Mapbox Feature used in mapping (Replaces 'any' type in fetchGeocodingSuggestions)
+interface MapboxFeature {
+  id: string;
+  type: string;
+  text: string;
+  place_name: string;
+  center: [number, number]; // [lng, lat]
+  properties: {
+    address?: string;
+    [key: string]: any;
+  };
+}
+
 // --- PRODUCTION API HELPER: MAPBOX FORWARD GEOCODING ---
-/**
- * Executes the API call to Mapbox Geocoding service for location suggestions.
- * THIS IS THE REAL API CALL STRUCTURE, USING THE PROVIDED TOKEN.
- */
 const fetchGeocodingSuggestions = async (
   query: string
 ): Promise<SearchResult[]> => {
@@ -90,15 +90,17 @@ const fetchGeocodingSuggestions = async (
 
     // MAPBOX RESPONSE MAPPING TO SearchResult
     const mappedResults: SearchResult[] = data.features.map(
-      (feature: MapboxFeature, index: number) => {
+      (feature: unknown, index: number) => {
+        const feat = feature as MapboxFeature;
+
         return {
-          id: feature.id || `result-${index}`,
-          type: "place" as const, // Mapbox returns general locations
-          title: feature.text || "Untitled Location",
-          subtitle: feature.place_name || feature.properties.address || "",
+          id: feat.id || `result-${index}`,
+          type: "place" as const,
+          title: feat.text || "Untitled Location",
+          subtitle: feat.place_name || feat.properties.address || "",
           icon: MapPin,
-          lat: feature.center[1], // Mapbox uses [lng, lat]
-          lng: feature.center[0],
+          lat: feat.center[1],
+          lng: feat.center[0],
         };
       }
     );
@@ -118,12 +120,50 @@ const fetchGeocodingSuggestions = async (
   }
 };
 
+// --- LOCATIONIQ REVERSE GEOCODING SERVICE (FOR FEATURE 5) ---
+const reverseGeocode = async (
+  lat: number,
+  lng: number
+): Promise<RouteInput | null> => {
+  if (!LOCATIONIQ_TOKEN) {
+    console.error(
+      "LOCATIONIQ_TOKEN is missing. Cannot perform reverse geocode."
+    );
+    return null;
+  }
+
+  const url = `https://us1.locationiq.com/v1/reverse?key=${LOCATIONIQ_TOKEN}&lat=${lat}&lon=${lng}&format=json`;
+
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.error) {
+      console.error("LocationIQ Error:", data.error);
+      return null;
+    }
+
+    // Map LocationIQ response to RouteInput structure
+    return {
+      id: `custom_${lat}_${lng}`, // Use custom ID
+      name: data.address.road || data.display_name,
+      subtitle: data.display_name,
+      lat: lat,
+      lng: lng,
+      type: "custom", // Use 'custom' type for pinned location
+    } as RouteInput;
+  } catch (error) {
+    console.error("Reverse Geocoding Failed:", error);
+    return null;
+  }
+};
+
 interface InputProps {
   field: "origin" | "destination";
   icon: ElementType;
   placeholder: string;
   value: RouteInput | null;
-  currentQuery: string; // ADDED: Current query text being typed
+  currentQuery: string;
   onChange: (text: string) => void;
   isFocused: boolean;
   onFocus: (field: "origin" | "destination") => void;
@@ -159,13 +199,14 @@ const RouteInputField = ({
   icon: Icon,
   placeholder,
   value,
-  currentQuery, // ADDED: Current query text
+  currentQuery,
   onChange,
   isFocused,
   onFocus,
   onBlur,
 }: InputProps) => {
   // FIX: When focused, show currentQuery (what user is typing), otherwise show the selected value name
+  // This ensures that if the user clicks the field with a value, they see the value
   const inputValue = isFocused ? currentQuery : value?.name || "";
 
   return (
@@ -176,7 +217,10 @@ const RouteInputField = ({
                 ${field === "origin" ? "mb-2" : ""}
             `}
       onClick={() => {
-        onFocus(field);
+        // Prevent click if already focused and actively typing, relying on autoFocus for focus
+        if (!isFocused) {
+          onFocus(field);
+        }
       }}
     >
       <Icon size={20} className={getIconColor(field, isFocused)} />
@@ -210,6 +254,13 @@ export default function SearchRoutePage() {
     userLocation,
     setCalculatedRoutes,
     setNavPhase,
+    // New Map Picker States/Actions (Feature 5)
+    setMapPickerActive,
+    saveRouteForm,
+    mapPickerPinLocation,
+    mapPickerTargetField,
+    savedRouteForm,
+    setMapPickerPinLocation, // Need this for cleanup/reset
   } = useAppStore();
 
   // AUTH STATE
@@ -220,9 +271,12 @@ export default function SearchRoutePage() {
     "destination"
   );
   const [currentQuery, setCurrentQuery] = useState("");
+  // apiGuardText now used for status/countdown message only
   const [apiGuardText, setApiGuardText] = useState<string | null>(null);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [isCalculatingRoutes, setIsCalculatingRoutes] = useState(false);
+  // NEW: Loading state for reverse geocoding (Feature 5)
+  const [isReversingGeocode, setIsReversingGeocode] = useState(false);
 
   const [favorites, setFavorites] = useState<RouteInput[]>([]);
   const [isFavoritesLoading, setIsFavoritesLoading] = useState(true);
@@ -235,7 +289,7 @@ export default function SearchRoutePage() {
   );
 
   const apiGuardTimerRef = useRef<number | null>(null);
-  const isCalculatingRef = useRef<boolean>(false); // GUARD AGAINST MULTIPLE SIMULTANEOUS CALCULATIONS
+  const isCalculatingRef = useRef<boolean>(false);
 
   const debouncedQuery = useDebounce(currentQuery, DEBOUNCE_DELAY_MS);
 
@@ -290,15 +344,25 @@ export default function SearchRoutePage() {
 
   // FETCH FAVORITES WHEN USER LOGS IN OR FAVORITES CHANGE
   useEffect(() => {
-    fetchFavorites();
-  }, [fetchFavorites]); // RE-FETCH WHEN USER CHANGES
+    if (user) {
+      fetchFavorites();
+    } else {
+      setFavorites([]);
+      setIsFavoritesLoading(false);
+    }
+  }, [user, fetchFavorites]);
 
   // --- GEOLOCATION GUARDRAIL (ON LOAD) ---
-  // FIX: Ensure origin is always set to current location if userLocation is available and origin type is "user"
-  // THROTTLED: Only update if coordinates actually changed significantly (0.0001 degree ~= 11 meters)
+  // FIX 4: Updated logic to respect the swap action by checking if the user location is already set as the destination.
   useEffect(() => {
     if (userLocation) {
-      // If origin doesn't exist, or if origin exists but is user type with wrong coordinates, update it
+      // CRITICAL FIX: If the destination is the 'user' location (due to a swap), DO NOT overwrite the origin.
+      if (destination && destination.type === "user") {
+        return;
+      }
+
+      // If origin doesn't exist (e.g., initially empty OR after a swap of an empty origin),
+      // or if origin exists but is user type with wrong coordinates, update it.
       const hasOrigin = origin && origin.type === "user";
       const coordsChanged =
         hasOrigin &&
@@ -312,18 +376,19 @@ export default function SearchRoutePage() {
           lat: userLocation.lat,
           lng: userLocation.lng,
           type: "user",
-          subtitle: "Your GPS Location",
+          subtitle: "Your GPS Location (Auto-detected)",
         });
       }
     }
-    // NOTE: Removed setRouteInput from deps as Zustand setters are stable
+    // Added destination to dependency array to react to its change (e.g., after swap)
+    // setRouteInput is a stable setter from Zustand, but included for linter if necessary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userLocation, origin]);
+  }, [userLocation, origin, destination]);
 
   // 3. API CALL LOGIC (Triggered by debouncedQuery)
   useEffect(() => {
     let statusTimeoutId: number | null = null;
-    let isCancelled = false; // FLAG TO PREVENT STATE UPDATES IF COMPONENT UNMOUNTS OR QUERY CHANGES
+    let isCancelled = false;
 
     if (debouncedQuery.length >= MIN_CHARS_FOR_SEARCH) {
       // EXECUTE REAL API CALL STRUCTURE
@@ -354,8 +419,6 @@ export default function SearchRoutePage() {
     } else {
       // CLEAR SUGGESTIONS IF QUERY IS TOO SHORT
       setLiveSuggestions([]);
-      setIsLoadingSuggestions(false);
-      setApiGuardText(null);
     }
 
     // CLEANUP: CANCEL PENDING UPDATES AND TIMERS
@@ -367,7 +430,7 @@ export default function SearchRoutePage() {
     };
   }, [debouncedQuery]);
 
-  // 4. API DEBOUNCER RESET & GUARD LOGIC (Runs on every keystroke/focus)
+  // 4. API DEBOUNCER RESET & GUARD LOGIC (Runs on every keystroke/focus) - Polished for Feature 2 & 3 UI
   useEffect(() => {
     // A. CLEAR ANY PREVIOUS API TIMER
     if (apiGuardTimerRef.current) {
@@ -375,40 +438,36 @@ export default function SearchRoutePage() {
       apiGuardTimerRef.current = null;
     }
 
-    // B. SET THE GUARD TEXT BASED ON LENGTH
+    // B. SET LOADING STATE & GUARD TEXT
     if (currentQuery.length > 0 && currentQuery.length < MIN_CHARS_FOR_SEARCH) {
-      setTimeout(() => {
-        setIsLoadingSuggestions(true);
-        setApiGuardText(
-          `Keep typing... Enter at least ${MIN_CHARS_FOR_SEARCH} characters.`
-        );
-      }, 0);
+      // If typing but too short, show minimum character requirement immediately (loading=true to show spinner)
+      setIsLoadingSuggestions(true);
+      setApiGuardText(
+        `Keep typing... Enter at least ${MIN_CHARS_FOR_SEARCH} characters.`
+      );
     } else if (currentQuery.length >= MIN_CHARS_FOR_SEARCH) {
-      // C. START 4-SECOND DEBOUNCER TIMER AND COUNTDOWN (AS PER REQUIREMENTS)
+      // C. START 4-SECOND DEBOUNCER TIMER AND COUNTDOWN VISUAL
       let count = DEBOUNCE_DELAY_MS / 1000;
 
-      setTimeout(() => {
-        setIsLoadingSuggestions(true);
-        setApiGuardText(`API search starts in ${count}s...`);
-      }, 0);
+      setIsLoadingSuggestions(true);
+      setApiGuardText(`Searching starts in ${count}s...`); // Initial message
 
       const interval = window.setInterval(() => {
         count -= 1;
         if (count > 0) {
-          setApiGuardText(`API search starts in ${count}s...`);
+          setApiGuardText(`Searching starts in ${count}s...`);
         } else {
           window.clearInterval(interval);
+          // The actual API call in Effect 3 will handle setting the final status
           setApiGuardText("Searching...");
         }
       }, 1000);
 
       apiGuardTimerRef.current = interval;
     } else {
-      // IF QUERY IS EMPTY, CLEAR GUARD TEXT AND LOADING
-      setTimeout(() => {
-        setIsLoadingSuggestions(false);
-        setApiGuardText(null);
-      }, 0);
+      // If query is empty, clear everything
+      setIsLoadingSuggestions(false);
+      setApiGuardText(null);
     }
 
     // CLEANUP ON UNMOUNT OR NEXT KEYSTROKE
@@ -427,13 +486,23 @@ export default function SearchRoutePage() {
   const handleInputFocus = (field: "origin" | "destination") => {
     setCurrentField(field);
     const value = field === "origin" ? origin : destination;
-    setCurrentQuery(value?.name || "");
 
-    if (field === "origin" && origin?.type !== "user") {
-      setRouteInput(field, null);
-    } else if (field === "destination") {
+    // Feature 1: Clear "Current Location" on focus for origin field
+    if (field === "origin" && value?.type === "user") {
+      setCurrentQuery("");
       setRouteInput(field, null);
     }
+    // Feature 3: Do not clear destination/non-user origin on focus, but reset the query to its existing value (if any)
+    else if (value) {
+      setCurrentQuery(value.name || "");
+    } else {
+      setCurrentQuery("");
+    }
+
+    // Reset suggestions/guardrails immediately on focus
+    setLiveSuggestions([]);
+    setApiGuardText(null);
+    setIsLoadingSuggestions(false);
   };
 
   const handleInputBlur = () => {
@@ -497,8 +566,60 @@ export default function SearchRoutePage() {
     setFavoriteToDelete(fav);
   };
 
+  // Map Picker Handlers (Feature 5)
+  const handleSelectOnMap = () => {
+    saveRouteForm(origin, destination); // Save current form state
+    setSearchRoutePageOpen(false); // Close search page
+    setMapPickerActive(true, currentField); // Activate map picker mode
+  };
+
+  // UseEffect to process the result from Map Picker after 'Confirm'
+  useEffect(() => {
+    if (
+      mapPickerPinLocation &&
+      mapPickerTargetField &&
+      isSearchRoutePageOpen === false
+    ) {
+      setIsReversingGeocode(true);
+      setMapPickerActive(false, null); // Deactivate map picker immediately after getting location
+      setMapPickerPinLocation(null); // Clear the pin location
+
+      const { lat, lng } = mapPickerPinLocation;
+
+      reverseGeocode(lat, lng)
+        .then((result) => {
+          if (result) {
+            setRouteInput(mapPickerTargetField, result);
+          } else {
+            alert("Could not determine address for the selected location.");
+          }
+        })
+        .finally(() => {
+          setIsReversingGeocode(false);
+          setSearchRoutePageOpen(true); // Re-open the SearchRoutePage with the new input
+        });
+    }
+    // isSearchRoutePageOpen added to deps to ensure this only runs once, when the page closes/re-opens from map picker flow
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    mapPickerPinLocation,
+    mapPickerTargetField,
+    isSearchRoutePageOpen,
+    setRouteInput,
+  ]);
+
+  // UseEffect to restore form state if coming back from 'Go Back' on map picker (Feature 5)
+  useEffect(() => {
+    if (isSearchRoutePageOpen && savedRouteForm) {
+      setRouteInput("origin", savedRouteForm.origin);
+      setRouteInput("destination", savedRouteForm.destination);
+      saveRouteForm(null, null); // Clear saved form
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSearchRoutePageOpen]);
+
   // 8. RENDER
-  if (!isSearchRoutePageOpen) return null;
+  if (!isSearchRoutePageOpen && !isReversingGeocode) return null; // Keep rendering while reversing geocoding
 
   const isQueryValidForSuggestions =
     currentQuery.length >= MIN_CHARS_FOR_SEARCH;
@@ -572,6 +693,7 @@ export default function SearchRoutePage() {
       >
         {/* HEADER AND INPUTS */}
         <div className="px-4 pb-4 border-b border-slate-200 bg-white shadow-sm">
+          {/* ... (omitted header) */}
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={() => setSearchRoutePageOpen(false)}
@@ -653,10 +775,7 @@ export default function SearchRoutePage() {
           <div className="p-4 mb-4 rounded-xl bg-white border border-slate-200 shadow-sm cursor-pointer hover:bg-slate-50">
             <div
               className="flex items-center gap-3"
-              onClick={() => {
-                setSearchRoutePageOpen(false);
-                alert(`Select on Map activated for ${currentField}.`);
-              }}
+              onClick={handleSelectOnMap} // Updated handler
             >
               <MapPin size={24} className="text-brand-primary shrink-0" />
               <div>
@@ -668,28 +787,27 @@ export default function SearchRoutePage() {
             </div>
           </div>
 
-          {/* 9. API GUARD/DEBOUNCE WARNING */}
-          {apiGuardText && (
-            <div className="p-4 mb-4 rounded-xl bg-yellow-50 text-yellow-800 border border-yellow-200 flex items-start gap-3">
-              <Clock size={20} className="shrink-0 mt-0.5" />
+          {/* 9. API GUARD/LOADING UI (Feature 2 & 3 UI) */}
+          {(isLoadingSuggestions || isReversingGeocode) && (
+            <div className="p-4 mb-4 rounded-xl bg-white border border-slate-200 shadow-sm flex items-start gap-3">
+              <Loader2
+                size={24}
+                className="text-brand-primary animate-spin shrink-0 mt-0.5"
+              />
               <div>
-                <p className="font-bold text-sm">Guardrails Active</p>
-                <p className="text-xs mt-1">{apiGuardText}</p>
+                <span className="text-slate-900 font-bold block">
+                  {isReversingGeocode
+                    ? "Pinning Location..."
+                    : "Getting Suggestions..."}
+                </span>
+                <p className="text-xs text-slate-500 mt-1">
+                  {isReversingGeocode
+                    ? "Fetching address via LocationIQ API."
+                    : apiGuardText}
+                </p>
               </div>
             </div>
           )}
-
-          {/* LOADER */}
-          {isLoadingSuggestions &&
-            currentQuery.length >= 1 &&
-            !isQueryValidForSuggestions && (
-              <div className="p-4 mb-4 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center gap-3 animate-pulse">
-                <Loader2 size={24} className="text-slate-400 animate-spin" />
-                <span className="text-slate-500 font-medium">
-                  Fetching suggestions...
-                </span>
-              </div>
-            )}
 
           {/* NO RESULTS FOUND STATE */}
           {currentQuery.length > 0 &&
@@ -839,7 +957,7 @@ export default function SearchRoutePage() {
             onClose={() => {
               setIsFavoriteModalOpen(false);
               setFavoriteToEdit(null);
-              fetchFavorites(); // RE-FETCH THE LIST ON CLOSE
+              fetchFavorites();
             }}
           />
         )}
@@ -864,7 +982,7 @@ export default function SearchRoutePage() {
 
                 if (error) throw error;
                 setFavoriteToDelete(null);
-                fetchFavorites(); // RE-FETCH LIST AFTER DELETE
+                fetchFavorites();
               } catch (error) {
                 console.error("[FAVORITE DELETE ERROR]:", error);
                 alert("Failed to delete favorite. Please try again.");

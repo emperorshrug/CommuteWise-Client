@@ -1,9 +1,6 @@
 import { create } from "zustand";
 import type { Terminal, TransportStop, UserLocation } from "../types/types";
-import type {
-  CalculatedRoute,
-  ActiveNavigationState,
-} from "../types/route";
+import type { CalculatedRoute, ActiveNavigationState } from "../types/route";
 
 export type MapFeature = Terminal | TransportStop;
 
@@ -56,6 +53,26 @@ interface AppState {
   activeNavigation: ActiveNavigationState;
   setActiveNavigation: (state: Partial<ActiveNavigationState>) => void;
   resetNavigation: () => void;
+
+  // NEW: MAP PICKER STATES (for Select on Map feature)
+  isMapPickerActive: boolean;
+  mapPickerPinLocation: { lat: number; lng: number } | null;
+  mapPickerTargetField: "origin" | "destination" | null;
+  // Stores origin/destination before going to map, to restore on "Go Back"
+  savedRouteForm: {
+    origin: RouteInput | null;
+    destination: RouteInput | null;
+  } | null;
+
+  setMapPickerActive: (
+    isActive: boolean,
+    targetField: "origin" | "destination" | null
+  ) => void;
+  setMapPickerPinLocation: (loc: { lat: number; lng: number } | null) => void;
+  saveRouteForm: (
+    origin: RouteInput | null,
+    destination: RouteInput | null
+  ) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -67,13 +84,20 @@ export const useAppStore = create<AppState>((set) => ({
   isSearchRoutePageOpen: false,
 
   origin: {
-    id: "user_loc",
+    id: "user_loc", // Added ID
     name: "Current Location",
     lat: 0,
     lng: 0,
     type: "user",
+    subtitle: "Your GPS Location (Auto-detected)", // Added subtitle
   },
   destination: null,
+
+  // NEW MAP PICKER STATES
+  isMapPickerActive: false,
+  mapPickerPinLocation: null,
+  mapPickerTargetField: null,
+  savedRouteForm: null,
 
   setUserLocation: (loc) =>
     set({
@@ -84,6 +108,7 @@ export const useAppStore = create<AppState>((set) => ({
         lat: loc.lat,
         lng: loc.lng,
         type: "user",
+        subtitle: "Your GPS Location (Auto-detected)",
       },
     }),
   setNavPhase: (phase) => set({ navPhase: phase }),
@@ -98,6 +123,16 @@ export const useAppStore = create<AppState>((set) => ({
   setSuggestRouteModalOpen: (isOpen) =>
     set({ isSuggestRouteModalOpen: isOpen }),
   setSearchRoutePageOpen: (isOpen) => set({ isSearchRoutePageOpen: isOpen }),
+
+  // NEW MAP PICKER ACTIONS
+  setMapPickerActive: (isActive, targetField) =>
+    set({
+      isMapPickerActive: isActive,
+      mapPickerTargetField: isActive ? targetField : null,
+    }),
+  setMapPickerPinLocation: (loc) => set({ mapPickerPinLocation: loc }),
+  saveRouteForm: (origin, destination) =>
+    set({ savedRouteForm: { origin, destination } }),
 
   setRouteInput: (field, input) =>
     set(() => ({
