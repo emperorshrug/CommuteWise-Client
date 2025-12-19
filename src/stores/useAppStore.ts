@@ -15,6 +15,12 @@ export interface RouteInput {
 }
 
 interface AppState {
+  // ADD: Terminals data
+  terminals: Terminal[];
+  setTerminals: (terminals: Terminal[]) => void;
+  isLoadingTerminals: boolean;
+  setLoadingTerminals: (loading: boolean) => void;
+
   userLocation: UserLocation | null;
   setUserLocation: (loc: UserLocation) => void;
 
@@ -78,6 +84,12 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
+  // ADD: Initial terminals state
+  terminals: [],
+  setTerminals: (terminals) => set({ terminals }),
+  isLoadingTerminals: false,
+  setLoadingTerminals: (loading) => set({ isLoadingTerminals: loading }),
+
   userLocation: null,
   navPhase: "exploration",
   selectedFeature: null,

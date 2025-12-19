@@ -1,203 +1,130 @@
-// src/lib/graph.ts
 import { supabase } from "./supabase";
-import * as turf from "@turf/turf";
-import type { VehicleType } from "../types/types";
+import type { Terminal } from "../types/types";
 
-// --- TYPES ---
+// --- GRAPH TYPES ---
 export interface GraphNode {
   id: string;
-  type: "terminal" | "stop" | "virtual_entry" | "virtual_exit";
   lat: number;
   lng: number;
   name: string;
-  vehicleTypes: VehicleType[];
 }
 
 export interface GraphEdge {
   from: string;
   to: string;
-  weight_distance: number; // km
-  weight_time: number; // minutes
-  weight_fare: number; // PHP
-  vehicleType: VehicleType | "walk";
-  geometry?: Record<string, unknown>; // GeoJSON LineString
+  weight_time: number;
+  weight_distance: number;
+  weight_fare: number;
+  vehicleType: string;
 }
 
 export interface TricycleZone {
   id: string;
   name: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  polygon: any; // GeoJSON Polygon
   base_fare: number;
   per_km: number;
-  polygon: Record<string, unknown>; // GeoJSON Polygon
 }
 
 export interface TransitGraph {
   nodes: GraphNode[];
-  edges: GraphEdge[];
+  adjacencyList: Record<string, GraphEdge[]>;
   tricycleZones: TricycleZone[];
 }
 
-// Define explicit interfaces for Supabase data
-interface DBRoute {
-  vehicle_type: VehicleType;
-  base_fare: number;
-  fare_per_km: number;
-  stops: DBStop[];
-}
-
-interface DBStop {
-  id: string;
-  lat: number;
-  lng: number;
-  name: string;
-  is_terminal: boolean;
-  vehicle_types: VehicleType[];
-  order_index?: number;
-}
-
-interface DBZone {
-  id: string;
-  name: string;
-  base_fare: number;
-  per_km: number;
-  geometry: Record<string, unknown>;
-}
-
-// --- CONSTANTS ---
-const AVERAGE_SPEEDS_KMH: Record<string, number> = {
-  jeepney: 18,
-  bus: 25,
-  "e-jeep": 20,
-  tricycle: 15,
-  walk: 5,
-};
-
-// --- DATA FETCHING & GRAPH BUILDING ---
+// --- BUILD TRANSIT GRAPH ---
 export async function buildTransitGraph(): Promise<TransitGraph> {
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
-  const tricycleZones: TricycleZone[] = [];
-
   try {
-    // 1. FETCH DATA FROM SUPABASE
-    const [routesRes, stopsRes, zonesRes] = await Promise.all([
-      supabase.from("routes").select("*, stops(*)"),
-      supabase.from("stops").select("*"),
-      supabase.from("tricycle_zones").select("*"),
-    ]);
+    // 1. Fetch Stops (Nodes)
+    const { data: stopsData, error: stopsError } = await supabase
+      .from("stops")
+      .select("id, name, lat, lng");
 
-    if (routesRes.error) throw routesRes.error;
-    if (zonesRes.error) throw zonesRes.error;
+    if (stopsError) throw stopsError;
 
-    // 2. PROCESS STOPS INTO NODES
-    const stopData = (stopsRes.data || []) as DBStop[];
+    const nodes: GraphNode[] = (stopsData || []).map((s) => ({
+      id: s.id,
+      lat: s.lat,
+      lng: s.lng,
+      name: s.name,
+    }));
 
-    stopData.forEach((stop) => {
-      const node: GraphNode = {
-        id: String(stop.id),
-        type: stop.is_terminal ? "terminal" : "stop",
-        lat: stop.lat,
-        lng: stop.lng,
-        name: stop.name,
-        vehicleTypes: stop.vehicle_types || [],
-      };
-      nodes.push(node);
-    });
+    // 2. Fetch Tricycle Zones
+    const { data: zonesData, error: zonesError } = await supabase
+      .from("tricycle_zones")
+      .select("*");
 
-    // 3. PROCESS TRICYCLE ZONES
-    const zoneData = (zonesRes.data || []) as DBZone[];
-    zoneData.forEach((zone) => {
-      tricycleZones.push({
-        id: String(zone.id),
-        name: zone.name,
-        base_fare: zone.base_fare || 15,
-        per_km: zone.per_km || 5,
-        polygon: zone.geometry,
-      });
-    });
-
-    // 4. BUILD EDGES FROM ROUTES
-    const routeData = (routesRes.data || []) as DBRoute[];
-
-    routeData.forEach((route) => {
-      if (!route.stops) return;
-
-      // Sort stops safely
-      const sortedStops = route.stops.sort(
-        (a, b) => (a.order_index || 0) - (b.order_index || 0)
-      );
-
-      for (let i = 0; i < sortedStops.length - 1; i++) {
-        const current = sortedStops[i];
-        const next = sortedStops[i + 1];
-
-        // Calculate Segment Distance
-        const fromPt = turf.point([current.lng, current.lat]);
-        const toPt = turf.point([next.lng, next.lat]);
-        const distance = turf.distance(fromPt, toPt, { units: "kilometers" });
-
-        // Calculate Time (Distance / Speed)
-        const speed = AVERAGE_SPEEDS_KMH[route.vehicle_type] || 20;
-        const time = (distance / speed) * 60; // minutes
-
-        // Calculate Fare
-        const fare =
-          (route.base_fare || 12) + distance * (route.fare_per_km || 2);
-
-        edges.push({
-          from: String(current.id),
-          to: String(next.id),
-          weight_distance: distance,
-          weight_time: time,
-          weight_fare: fare,
-          vehicleType: route.vehicle_type,
-        });
-      }
-    });
-
-    // 5. CREATE VIRTUAL TRANSFERS
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const n1 = nodes[i];
-        const n2 = nodes[j];
-
-        if (n1.id === n2.id) continue;
-
-        const dist = turf.distance(
-          turf.point([n1.lng, n1.lat]),
-          turf.point([n2.lng, n2.lat]),
-          { units: "kilometers" }
-        );
-
-        // If within 100 meters, create a walking transfer edge
-        if (dist <= 0.1) {
-          const walkTime = (dist / 5) * 60;
-          const transferPenalty = 5;
-
-          edges.push({
-            from: n1.id,
-            to: n2.id,
-            weight_distance: dist,
-            weight_time: walkTime + transferPenalty,
-            weight_fare: 0,
-            vehicleType: "walk",
-          });
-
-          edges.push({
-            from: n2.id,
-            to: n1.id,
-            weight_distance: dist,
-            weight_time: walkTime + transferPenalty,
-            weight_fare: 0,
-            vehicleType: "walk",
-          });
-        }
-      }
+    // We don't throw here if table is missing, just log warning
+    if (zonesError) {
+      console.warn("Could not fetch tricycle zones:", zonesError.message);
     }
 
-    return { nodes, edges, tricycleZones };
+    const tricycleZones: TricycleZone[] = (zonesData || []).map((z) => ({
+      id: z.id,
+      name: z.name,
+      polygon: z.polygon,
+      base_fare: z.base_fare || 10,
+      per_km: z.per_km || 2,
+    }));
+
+    // 3. Build Adjacency List (Edges)
+    // Note: You need to implement the logic to fetch 'routes' or 'connections'
+    // from your database to link these nodes together.
+    // For now, we initialize an empty list so the app doesn't crash.
+    const adjacencyList: Record<string, GraphEdge[]> = {};
+
+    nodes.forEach((node) => {
+      adjacencyList[node.id] = [];
+    });
+
+    // TODO: Fetch edges from supabase (e.g., 'route_connections') and populate adjacencyList
+    // Example logic:
+    // const { data: edges } = await supabase.from('edges').select('*');
+    // edges.forEach(e => {
+    //    adjacencyList[e.from_node].push({ from: e.from, to: e.to, ...weights })
+    // });
+
+    return {
+      nodes,
+      adjacencyList,
+      tricycleZones,
+    };
   } catch (error) {
-    console.error("Error building graph:", error);
-    return { nodes: [], edges: [], tricycleZones: [] };
+    console.error("Error building transit graph:", error);
+    // Return empty structure on error to prevent total app crash
+    return { nodes: [], adjacencyList: {}, tricycleZones: [] };
+  }
+}
+
+// --- FETCH TERMINALS FOR MAP DISPLAY ---
+export async function fetchTerminals(): Promise<Terminal[]> {
+  try {
+    const { data, error } = await supabase
+      .from("stops")
+      .select("*")
+      .eq("is_terminal", true);
+
+    if (error) throw error;
+
+    // Transform to Terminal type for map display
+    const terminals: Terminal[] = (data || []).map((stop) => ({
+      id: stop.id,
+      name: stop.name,
+      address: stop.address || "",
+      vehicle_type: stop.vehicle_types?.[0] || "jeepney",
+      lat: stop.lat,
+      lng: stop.lng,
+      rating: stop.rating || 4.0,
+      rating_count: stop.rating_count || 0,
+      description: stop.description || "",
+      routes: [],
+      reviews: [],
+    }));
+
+    return terminals;
+  } catch (error) {
+    console.error("Error fetching terminals:", error);
+    return [];
   }
 }

@@ -3,10 +3,10 @@
 // PERFORMANCE: USES 'React.memo' TO PREVENT RE-RENDERS ON MAP DRAG.
 // =========================================================================================
 
-import React, { useMemo } from "react"; // IMPORT MEMO
+import React, { useMemo, useEffect } from "react";
 import { Marker, Popup } from "react-map-gl";
 import { Bus, Bike, Zap, MapPin, Star } from "lucide-react";
-import { TERMINALS_DATA } from "../../lib/graph";
+import { fetchTerminals } from "../../lib/graph";
 import { useAppStore } from "../../stores/useAppStore";
 import type { VehicleType } from "../../types/types";
 
@@ -24,15 +24,33 @@ const getMarkerStyle = (type: VehicleType) => {
 };
 
 function TerminalMarkers() {
+  const terminals = useAppStore((state) => state.terminals);
+  const setTerminals = useAppStore((state) => state.setTerminals);
+  const isLoadingTerminals = useAppStore((state) => state.isLoadingTerminals);
+  const setLoadingTerminals = useAppStore((state) => state.setLoadingTerminals);
   const selectedFeature = useAppStore((state) => state.selectedFeature);
   const selectFeature = useAppStore((state) => state.selectFeature);
   const openTerminalPage = useAppStore((state) => state.openTerminalPage);
 
+  // Fetch terminals on mount
+  useEffect(() => {
+    const loadTerminals = async () => {
+      if (terminals.length > 0) return; // Already loaded
+
+      setLoadingTerminals(true);
+      const data = await fetchTerminals();
+      setTerminals(data);
+      setLoadingTerminals(false);
+    };
+
+    loadTerminals();
+  }, [terminals.length, setTerminals, setLoadingTerminals]);
+
   // MEMOIZE THE MARKER LIST
-  // React will simply cache this list and only update if 'selectedFeature' changes.
-  // It won't re-calculate during map pans/zooms.
   const markers = useMemo(() => {
-    return TERMINALS_DATA.map((terminal) => {
+    if (isLoadingTerminals || terminals.length === 0) return null;
+
+    return terminals.map((terminal) => {
       const { color, Icon } = getMarkerStyle(terminal.vehicle_type);
       const isSelected = selectedFeature?.id === terminal.id;
 
@@ -43,7 +61,7 @@ function TerminalMarkers() {
             longitude={terminal.lng}
             anchor="bottom"
             onClick={(e) => {
-              e.originalEvent.stopPropagation(); // Stops CLICK bubbling
+              e.originalEvent.stopPropagation();
               if (isSelected) {
                 selectFeature(null);
               } else {
@@ -52,11 +70,8 @@ function TerminalMarkers() {
             }}
           >
             <div
-              // --- FIX: STOP TOUCH GESTURES FROM REACHING THE MAP ---
               onTouchStart={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
-              // -----------------------------------------------------
-
               className={`
                 p-2 rounded-full shadow-lg border-2 border-white 
                 cursor-pointer transform transition-transform 
@@ -123,10 +138,15 @@ function TerminalMarkers() {
         </div>
       );
     });
-  }, [selectedFeature, selectFeature, openTerminalPage]); // Dependencies
+  }, [
+    terminals,
+    selectedFeature,
+    selectFeature,
+    openTerminalPage,
+    isLoadingTerminals,
+  ]);
 
   return <>{markers}</>;
 }
 
-// WRAP THE EXPORT IN REACT.MEMO
 export default React.memo(TerminalMarkers);
