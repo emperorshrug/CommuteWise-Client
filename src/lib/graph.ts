@@ -1,167 +1,203 @@
-// =========================================================================================
-// GRAPH DATA - MANUAL PILOT DATA
-// PURPOSE: PROVIDES HARDCODED LOCATIONS FOR TERMINALS AND STOPS
-// CONTEXT: USED FOR BARANGAY TANDANG SORA PILOT. MAPPED TO MAPBOX STREETS V12.
-// =========================================================================================
+// src/lib/graph.ts
+import { supabase } from "./supabase";
+import * as turf from "@turf/turf";
+import type { VehicleType } from "../types/types";
 
-import type { Terminal, TransportStop } from "../types/types";
+// --- TYPES ---
+export interface GraphNode {
+  id: string;
+  type: "terminal" | "stop" | "virtual_entry" | "virtual_exit";
+  lat: number;
+  lng: number;
+  name: string;
+  vehicleTypes: VehicleType[];
+}
 
-// MANUAL DATA: Pilot Area (Tandang Sora / QC)
-// We use the IDs to link them to the routing algorithm later.
+export interface GraphEdge {
+  from: string;
+  to: string;
+  weight_distance: number; // km
+  weight_time: number; // minutes
+  weight_fare: number; // PHP
+  vehicleType: VehicleType | "walk";
+  geometry?: Record<string, unknown>; // GeoJSON LineString
+}
 
-export const TERMINALS_DATA: Terminal[] = [
-  {
-    id: 1,
-    name: "Tandang Sora Jeepney Terminal",
-    address: "Tandang Sora Ave, Culliat, Quezon City",
-    vehicle_type: "jeepney",
-    lat: 14.676,
-    lng: 121.0437,
-    rating: 4.5,
-    rating_count: 128,
-    description:
-      "Main terminal near the market. Routes to Visayas Ave and QC Hall.",
-    routes: [
-      {
-        id: "r1",
-        name: "Tandang Sora -> Quezon City Hall",
-        distance_km: 4.2,
-        eta_mins: 25,
-        fare_regular: 13.0,
-        fare_discounted: 11.0,
-        stops: [
-          { id: 101, name: "Tandang Sora Terminal", type: "start" },
-          { id: 102, name: "Culiat Intersection", type: "waypoint" },
-          { id: 103, name: "Central Avenue", type: "waypoint" },
-          { id: 104, name: "Housing / Puregold", type: "waypoint" },
-          { id: 105, name: "Quezon City Hall", type: "end" },
-        ],
-      },
-      {
-        id: "r2",
-        name: "Tandang Sora -> Visayas Avenue",
-        distance_km: 2.5,
-        eta_mins: 15,
-        fare_regular: 13.0,
-        fare_discounted: 11.0,
-        stops: [
-          { id: 201, name: "Tandang Sora Terminal", type: "start" },
-          { id: 202, name: "Sanville Subdivision", type: "waypoint" },
-          { id: 203, name: "7-Eleven Visayas", type: "waypoint" },
-          { id: 204, name: "Wilcon City Center", type: "end" },
-        ],
-      },
-    ],
-    reviews: [
-      {
-        id: "rev1",
-        user_display_name: "CommuterJuan",
-        rating: 5,
-        comment: "Organized queueing system even during rush hour.",
-        date_posted: "2025-12-10",
-        upvotes: 15,
-        downvotes: 1,
-      },
-      {
-        id: "rev2",
-        user_display_name: "MariaClara_99",
-        rating: 4,
-        comment: "Good terminal but muddy when it rains.",
-        date_posted: "2025-12-12",
-        upvotes: 8,
-        downvotes: 0,
-      },
-    ],
-  },
-  // ... (Other terminals can remain basic for now)
-  {
-    id: 2,
-    name: "Visayas Ave Tricycle TODA",
-    address: "Visayas Ave cor. T. Sora, QC",
-    vehicle_type: "tricycle",
-    lat: 14.672,
-    lng: 121.048,
-    rating: 4.2,
-    rating_count: 54,
-    description: "Green tricycles.",
-    routes: [],
-    reviews: [],
-  },
-  {
-    id: 3,
-    name: "Philcoa Jeepney Stop",
-    address: "Commonwealth Ave, QC",
-    vehicle_type: "jeepney",
-    lat: 14.6515,
-    lng: 121.0493,
-    rating: 4.8,
-    rating_count: 312,
-    description: "Major hub.",
-    routes: [],
-    reviews: [],
-  },
-  {
-    id: 4,
-    name: "Culiat E-Jeep Station",
-    address: "Luzon Ave, Culiat, QC",
-    vehicle_type: "e-jeep",
-    lat: 14.665,
-    lng: 121.055,
-    rating: 4.0,
-    rating_count: 20,
-    description: "Modern AC jeeps.",
-    routes: [],
-    reviews: [],
-  },
-];
+export interface TricycleZone {
+  id: string;
+  name: string;
+  base_fare: number;
+  per_km: number;
+  polygon: Record<string, unknown>; // GeoJSON Polygon
+}
 
-// MANUAL DATA: STOPS ALONG THE ROUTES
-// CONTEXT: COORDINATES ARE MANUALLY SNAPPED TO ROAD INTERSECTIONS.
-// UPDATE: NOW SUPPORTS MULTIPLE VEHICLE TYPES PER STOP.
-export const STOPS_DATA: TransportStop[] = [
-  // --- VISAYAS AVE (MAINLY JEEPS) ---
-  {
-    id: 101,
-    name: "Sanville Subdivision",
-    vehicle_types: ["jeepney"], // SINGLE MODE
-    lat: 14.6715,
-    lng: 121.0452,
-  },
-  {
-    id: 102,
-    name: "Centralville / 7-Eleven",
-    vehicle_types: ["jeepney"],
-    lat: 14.6685,
-    lng: 121.0468,
-  },
-  {
-    id: 103,
-    name: "Wilcon City Center",
-    vehicle_types: ["jeepney", "bus"], // EXAMPLE: SERVES BOTH JEEP AND BUS
-    lat: 14.6642,
-    lng: 121.0495,
-  },
+export interface TransitGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  tricycleZones: TricycleZone[];
+}
 
-  // --- TANDANG SORA (MIXED USE) ---
-  {
-    id: 201,
-    name: "Palengke (Wet Market)",
-    vehicle_types: ["tricycle", "jeepney"], // DUAL MODE HUB
-    lat: 14.6755,
-    lng: 121.043,
-  },
-  {
-    id: 202,
-    name: "St. James College",
-    vehicle_types: ["tricycle"],
-    lat: 14.674,
-    lng: 121.0415,
-  },
-  {
-    id: 203,
-    name: "Crossroad / Shell",
-    vehicle_types: ["jeepney", "e-jeep"], // JEEP AND E-JEEP STOP
-    lat: 14.6765,
-    lng: 121.0445,
-  },
-];
+// Define explicit interfaces for Supabase data
+interface DBRoute {
+  vehicle_type: VehicleType;
+  base_fare: number;
+  fare_per_km: number;
+  stops: DBStop[];
+}
+
+interface DBStop {
+  id: string;
+  lat: number;
+  lng: number;
+  name: string;
+  is_terminal: boolean;
+  vehicle_types: VehicleType[];
+  order_index?: number;
+}
+
+interface DBZone {
+  id: string;
+  name: string;
+  base_fare: number;
+  per_km: number;
+  geometry: Record<string, unknown>;
+}
+
+// --- CONSTANTS ---
+const AVERAGE_SPEEDS_KMH: Record<string, number> = {
+  jeepney: 18,
+  bus: 25,
+  "e-jeep": 20,
+  tricycle: 15,
+  walk: 5,
+};
+
+// --- DATA FETCHING & GRAPH BUILDING ---
+export async function buildTransitGraph(): Promise<TransitGraph> {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  const tricycleZones: TricycleZone[] = [];
+
+  try {
+    // 1. FETCH DATA FROM SUPABASE
+    const [routesRes, stopsRes, zonesRes] = await Promise.all([
+      supabase.from("routes").select("*, stops(*)"),
+      supabase.from("stops").select("*"),
+      supabase.from("tricycle_zones").select("*"),
+    ]);
+
+    if (routesRes.error) throw routesRes.error;
+    if (zonesRes.error) throw zonesRes.error;
+
+    // 2. PROCESS STOPS INTO NODES
+    const stopData = (stopsRes.data || []) as DBStop[];
+
+    stopData.forEach((stop) => {
+      const node: GraphNode = {
+        id: String(stop.id),
+        type: stop.is_terminal ? "terminal" : "stop",
+        lat: stop.lat,
+        lng: stop.lng,
+        name: stop.name,
+        vehicleTypes: stop.vehicle_types || [],
+      };
+      nodes.push(node);
+    });
+
+    // 3. PROCESS TRICYCLE ZONES
+    const zoneData = (zonesRes.data || []) as DBZone[];
+    zoneData.forEach((zone) => {
+      tricycleZones.push({
+        id: String(zone.id),
+        name: zone.name,
+        base_fare: zone.base_fare || 15,
+        per_km: zone.per_km || 5,
+        polygon: zone.geometry,
+      });
+    });
+
+    // 4. BUILD EDGES FROM ROUTES
+    const routeData = (routesRes.data || []) as DBRoute[];
+
+    routeData.forEach((route) => {
+      if (!route.stops) return;
+
+      // Sort stops safely
+      const sortedStops = route.stops.sort(
+        (a, b) => (a.order_index || 0) - (b.order_index || 0)
+      );
+
+      for (let i = 0; i < sortedStops.length - 1; i++) {
+        const current = sortedStops[i];
+        const next = sortedStops[i + 1];
+
+        // Calculate Segment Distance
+        const fromPt = turf.point([current.lng, current.lat]);
+        const toPt = turf.point([next.lng, next.lat]);
+        const distance = turf.distance(fromPt, toPt, { units: "kilometers" });
+
+        // Calculate Time (Distance / Speed)
+        const speed = AVERAGE_SPEEDS_KMH[route.vehicle_type] || 20;
+        const time = (distance / speed) * 60; // minutes
+
+        // Calculate Fare
+        const fare =
+          (route.base_fare || 12) + distance * (route.fare_per_km || 2);
+
+        edges.push({
+          from: String(current.id),
+          to: String(next.id),
+          weight_distance: distance,
+          weight_time: time,
+          weight_fare: fare,
+          vehicleType: route.vehicle_type,
+        });
+      }
+    });
+
+    // 5. CREATE VIRTUAL TRANSFERS
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const n1 = nodes[i];
+        const n2 = nodes[j];
+
+        if (n1.id === n2.id) continue;
+
+        const dist = turf.distance(
+          turf.point([n1.lng, n1.lat]),
+          turf.point([n2.lng, n2.lat]),
+          { units: "kilometers" }
+        );
+
+        // If within 100 meters, create a walking transfer edge
+        if (dist <= 0.1) {
+          const walkTime = (dist / 5) * 60;
+          const transferPenalty = 5;
+
+          edges.push({
+            from: n1.id,
+            to: n2.id,
+            weight_distance: dist,
+            weight_time: walkTime + transferPenalty,
+            weight_fare: 0,
+            vehicleType: "walk",
+          });
+
+          edges.push({
+            from: n2.id,
+            to: n1.id,
+            weight_distance: dist,
+            weight_time: walkTime + transferPenalty,
+            weight_fare: 0,
+            vehicleType: "walk",
+          });
+        }
+      }
+    }
+
+    return { nodes, edges, tricycleZones };
+  } catch (error) {
+    console.error("Error building graph:", error);
+    return { nodes: [], edges: [], tricycleZones: [] };
+  }
+}

@@ -1,18 +1,17 @@
+// src/stores/useAppStore.ts
 import { create } from "zustand";
 import type { Terminal, TransportStop, UserLocation } from "../types/types";
 import type { CalculatedRoute, ActiveNavigationState } from "../types/route";
 
 export type MapFeature = Terminal | TransportStop;
 
-// --- EXPORTED ROUTE INPUT TYPE ---
 export interface RouteInput {
   id: string | null;
   name: string;
   lat: number;
   lng: number;
-  // FIX: Added 'route' to the possible types
   type: "terminal" | "place" | "custom" | "user" | "route";
-  subtitle?: string; // ADDED: Optional subtitle/address for favorites
+  subtitle?: string;
 }
 
 interface AppState {
@@ -31,7 +30,6 @@ interface AppState {
   isSuggestRouteModalOpen: boolean;
   setSuggestRouteModalOpen: (isOpen: boolean) => void;
 
-  // NEW: ROUTE SEARCH STATES
   isSearchRoutePageOpen: boolean;
   setSearchRoutePageOpen: (isOpen: boolean) => void;
 
@@ -42,7 +40,6 @@ interface AppState {
     input: RouteInput | null
   ) => void;
   swapRouteInputs: () => void;
-  // NEW: Action to reset inputs to initial state (Feature 2)
   resetRouteInputs: () => void;
 
   // ROUTE CALCULATION STATES
@@ -56,17 +53,14 @@ interface AppState {
   setActiveNavigation: (state: Partial<ActiveNavigationState>) => void;
   resetNavigation: () => void;
 
-  // NEW: MAP PICKER STATES (for Select on Map feature)
+  // MAP PICKER STATES
   isMapPickerActive: boolean;
   mapPickerPinLocation: { lat: number; lng: number } | null;
   mapPickerTargetField: "origin" | "destination" | null;
-  // Current visible map center (for area lookups)
   mapCenter: { lat: number; lng: number } | null;
   setMapCenter: (c: { lat: number; lng: number } | null) => void;
-  // Flag to indicate the map has moved and data needs refreshing
   mapNeedsRefresh: boolean;
   setMapNeedsRefresh: (needs: boolean) => void;
-  // Stores origin/destination before going to map, to restore on "Go Back"
   savedRouteForm: {
     origin: RouteInput | null;
     destination: RouteInput | null;
@@ -92,16 +86,15 @@ export const useAppStore = create<AppState>((set) => ({
   isSearchRoutePageOpen: false,
 
   origin: {
-    id: "user_loc", // Added ID
+    id: "user_loc",
     name: "Current Location",
     lat: 0,
     lng: 0,
     type: "user",
-    subtitle: "Your GPS Location (Auto-detected)", // Added subtitle
+    subtitle: "Your GPS Location (Auto-detected)",
   },
   destination: null,
 
-  // NEW MAP PICKER STATES
   isMapPickerActive: false,
   mapPickerPinLocation: null,
   mapPickerTargetField: null,
@@ -132,7 +125,6 @@ export const useAppStore = create<AppState>((set) => ({
     set({ isSuggestRouteModalOpen: isOpen }),
   setSearchRoutePageOpen: (isOpen) => set({ isSearchRoutePageOpen: isOpen }),
 
-  // NEW MAP PICKER ACTIONS
   setMapPickerActive: (isActive, targetField) =>
     set((state) => ({
       isMapPickerActive: isActive,
@@ -143,7 +135,6 @@ export const useAppStore = create<AppState>((set) => ({
         : targetField,
     })),
   setMapPickerPinLocation: (loc) => set({ mapPickerPinLocation: loc }),
-  // Map center and refresh controls
   mapCenter: null,
   setMapCenter: (c) => set({ mapCenter: c }),
   mapNeedsRefresh: false,
@@ -162,7 +153,6 @@ export const useAppStore = create<AppState>((set) => ({
       destination: state.origin,
     })),
 
-  // NEW: Reset route inputs (Feature 2)
   resetRouteInputs: () =>
     set((state) => ({
       origin: state.userLocation
@@ -183,20 +173,17 @@ export const useAppStore = create<AppState>((set) => ({
             subtitle: "Your GPS Location (Auto-detected)",
           },
       destination: null,
-      // Also reset current map picker state for a clean slate
       isMapPickerActive: false,
       mapPickerPinLocation: null,
       mapPickerTargetField: null,
       savedRouteForm: null,
     })),
 
-  // ROUTE CALCULATION STATES
   calculatedRoutes: [],
   setCalculatedRoutes: (routes) => set({ calculatedRoutes: routes }),
   selectedRoute: null,
   setSelectedRoute: (route) => set({ selectedRoute: route }),
 
-  // ACTIVE NAVIGATION STATE
   activeNavigation: {
     route: null,
     currentSegmentIndex: 0,
