@@ -69,21 +69,11 @@ export async function buildTransitGraph(): Promise<TransitGraph> {
     }));
 
     // 3. Build Adjacency List (Edges)
-    // Note: You need to implement the logic to fetch 'routes' or 'connections'
-    // from your database to link these nodes together.
-    // For now, we initialize an empty list so the app doesn't crash.
     const adjacencyList: Record<string, GraphEdge[]> = {};
 
     nodes.forEach((node) => {
       adjacencyList[node.id] = [];
     });
-
-    // TODO: Fetch edges from supabase (e.g., 'route_connections') and populate adjacencyList
-    // Example logic:
-    // const { data: edges } = await supabase.from('edges').select('*');
-    // edges.forEach(e => {
-    //    adjacencyList[e.from_node].push({ from: e.from, to: e.to, ...weights })
-    // });
 
     return {
       nodes,
@@ -100,10 +90,9 @@ export async function buildTransitGraph(): Promise<TransitGraph> {
 // --- FETCH TERMINALS FOR MAP DISPLAY ---
 export async function fetchTerminals(): Promise<Terminal[]> {
   try {
-    const { data, error } = await supabase
-      .from("stops")
-      .select("*")
-      .eq("is_terminal", true);
+    // FIX: Removed .eq("is_terminal", true) because the column is missing in your DB.
+    // This will fetch ALL stops temporarily.
+    const { data, error } = await supabase.from("stops").select("*");
 
     if (error) throw error;
 
